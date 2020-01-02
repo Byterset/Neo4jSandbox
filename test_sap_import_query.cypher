@@ -1,9 +1,22 @@
-//Create or update all nodes level by level starting with local suppliers->DUNS->NatDUNS->GmDuns and add their respective relations
+//LOAD IFRP QUERY
+//REVISION DATE: 2020-01-02
+//WHAT DOES THIS QUERY DO: 
+//LOAD IFRP EXPORT FILE AS CSV AND CREATE/UPDATE ALL NODES LEVEL BY LEVEL (local Supplier - DUNS - NATDUNS - GLOBALDUNS) THEN LINK THEM ACCORDINGLY
+
+//WHAT NEEDS TO BE DONE IN ORDER FOR THE IMPORT PROCESS TO WORK PROPERLY?
+//  1) Linkurious/Neo4j Database needs to be empty (easiest to achieve with Query: "MATCH (n) detach delete n")
+//  2) ALL '.CSV' file paths need to be updated according to the latest file name. (ATTENTION TO FIELDTERMINATORS)
+//  3) The Headers in the CSV file must exist and be named according to the Linkurious import guid on the hub
+//  4) This needs to be the first query to be run for two reasons: 
+//      4.1) It does not discriminate between relationship validation, it just adds everything according to the source file
+//      4.2) The DNB Input which should be loaded directly afterwards does not contain the local supplier information 
+
+
 
 //Create all nonexisting local suppliers with a unique id consisting of Source System and local ID
 Load CSV with headers from 'https://raw.githubusercontent.com/KevinReier/Neo4jSandbox/master/test_sap_export.csv' as row fieldterminator ';' 
 with row, apoc.util.md5([row.sr_system_id + '_' + row.sr_supplier_id]) As supplier_uid
-    where (not supplier_uid is null) and (not row.sr_supplier_id = '')
+    where (not supplier_uid is null) AND (not row.sr_supplier_id = '')
         with row, supplier_uid
             merge (child:SUPPLIER{uid:supplier_uid}) 
                 On create set 
@@ -100,6 +113,7 @@ WITH row, row.sr_supplier_national_mother_duns_id as nat_duns_id
         WITH DISTINCT(father) as father
             MATCH (child:DUNS{duns:father.duns})
                 WITH father, child
+                Where Not (child)-[:BELONGS]-(father)
                 MERGE (child)-[r:BELONGS{origin:"IFRP"}]->(father)
                     SET 
                     //TODO: Change these accordingly!
@@ -129,7 +143,8 @@ WITH row, row.sr_supplier_global_mother_duns_id as gm_duns_id
         WITH DISTINCT(father) as father
             MATCH (child:NATDUNS{duns:father.duns})
                 WITH father, child
-                    MERGE (child)-[r:BELONGS{source:"IFRP"}]->(father)
+                    Where Not (child)-[:BELONGS]-(father)
+                    MERGE (child)-[r:BELONGS{origin:"IFRP"}]->(father)
                         SET 
                             //TODO: Change these accordingly!
                             r.validation_level = 'PYD', //arbitrary values: recommend current date and PYD level verification
@@ -137,7 +152,8 @@ WITH row, row.sr_supplier_global_mother_duns_id as gm_duns_id
         WITH DISTINCT(child) as father
             MATCH (child:DUNS{duns:father.duns})
                 WITH father, child
-                    MERGE (child)-[r:BELONGS{source:"IFRP"}]->(father)
+                    Where Not (child)-[:BELONGS]-(father)
+                    MERGE (child)-[r:BELONGS{origin:"IFRP"}]->(father)
                         SET 
                             //TODO: Change these accordingly!
                             r.validation_level = 'PYD', //arbitrary values: recommend current date and PYD level verification
