@@ -61,8 +61,6 @@ with row, row.sr_supplier_global_mother_duns_id As gm_duns_id, 'IFRP' as origin
                                         d.duns = n.duns,
                                         d.dunsName = n.dunsName;
 
-
-//----------------------------------------------------------------------------------------------------------------
 // CREATE THE RELATIONSHIPS
 //local suppliers to DUNS level
 Load CSV with headers from 'https://raw.githubusercontent.com/KevinReier/Neo4jSandbox/master/test_sap_export.csv' as row fieldterminator ';' 
