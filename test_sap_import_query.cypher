@@ -68,6 +68,8 @@ MERGE (g:GlobalDuns{duns:gm_duns_id})
                 d = n;
 
 // CREATE THE RELATIONSHIPS
+//delete all previous local supplier mappings
+
 //local suppliers to DUNS level, if there is an old relationship remove it, since new local -> Duns mapping is completely trusted.
 Load CSV WITH headers from 'https://raw.githubusercontent.com/KevinReier/Neo4jSandbox/master/test_sap_export.csv' AS row fieldterminator '|' 
 WITH row, (row.sr_system_id + '_' + row.sr_supplier_id) AS supplier_uid
@@ -76,16 +78,17 @@ WHERE (not supplier_uid IS NULL) AND (not row.sr_supplier_id = '')
     WITH row, child, row.sr_supplier_duns_id AS duns_id
     MATCH (father:Duns{duns:duns_id})
     WHERE (NOT duns_id  IN [ '#', '','NDM999999', 'NOH999999'] ) AND (NOT duns_id IS NULL)
-        WITH DISTINCT (child) AS child, father, row
-            WITH DISTINCT(father) AS father, child, row
-            MATCH (child)-[oldr:BELONGS]->(father)
-            DELETE oldr
-            MERGE (child)-[r:BELONGS{origin:"IFRP"}]->(father)
-                SET 
-                    r.validation_level = row.source,
-                    r.update_date = row.modification_date;                       
-   
+        WITH DISTINCT (child) AS child, row, father
+            WITH DISTINCT (father) as father, child, row
+            OPTIONAL MATCH (child)-[k:BELONGS]->(altFather:Duns)
+            WHERE (NOT altFather.duns = father.duns) OR (NOT k.origin = 'IFRP') OR (k.origin IS NULL) DELETE k
+            MERGE (child)-[r:BELONGS]->(father) 
+                SET r.origin = 'IFRP';
+            
+                             
+
 //duns -> natduns
+//TODO:FIX THE IF ELSE CASES WHEN EXISTING RELATIONSHIPS ARE DELETED
 Load CSV WITH headers from 'https://raw.githubusercontent.com/KevinReier/Neo4jSandbox/master/test_sap_export.csv' AS row fieldterminator '|' 
 WITH row, row.sr_supplier_duns_id AS duns_id
 MATCH (child:Duns{duns:duns_id})
@@ -93,12 +96,36 @@ WHERE (NOT duns_id  IN [ '#', '','NDM999999', 'NOH999999'] ) AND (NOT duns_id IS
     WITH row, child, row.sr_supplier_national_mother_duns_id AS nat_duns_id
     MATCH (father:NatDuns{duns:nat_duns_id})
     WHERE (NOT nat_duns_id  IN [ '#', '','NDM999999', 'NOH999999'] ) AND (NOT nat_duns_id IS NULL) 
-        WITH DISTINCT (child) AS child, father, row
-            WITH DISTINCT(father) AS father, child, row
-            MERGE (child)-[r:BELONGS{origin:"IFRP"}]->(father)
+        WITH DISTINCT (child) AS child, row, father
+        WITH DISTINCT (father) AS father, child, row
+            OPTIONAL MATCH (child)-[k:BELONGS{}]->(anyNode)
+            FOREACH(ignoreMe IN CASE WHEN NOT exists((child)-[:BELONGS{validation_level:'PYD'}]->()) THEN [1] ELSE [] END | 
+                FOREACH(ignoreMe IN CASE WHEN NOT k.validation_level = 'PYD' THEN [1] ELSE [] END | 
+                    DELETE k
+                )
+                MERGE (child)-[y:BELONGS{validation_level:row.source}]->(father)
+                    SET 
+                        y.origin = 'IFRP',
+                        y.update_date = row.modification_date
+            );
+            // FOREACH(ignoreMe IN CASE WHEN exists((child)-[:BELONGS{validation_level:'PYD'}]->()) THEN [1] ELSE [] END | 
+            //     FOREACH(ignoreMe IN CASE WHEN NOT k.validation_level = 'PYD' THEN [1] ELSE [] END | 
+            //         DELETE k
+            //     )
+            // );
+            
+            
+
+            // OPTIONAL MATCH 
+            // WHERE (NOT exists((child)-[k:BELONGS{validation_level:'PYD'}]->())) DELETE k 
+            // CREATE 
+
+            MERGE (child)-[r:BELONGS{validation_level:row.source}]->(father)
                 SET 
-                    r.validation_level = row.source,
+                    r.origin = 'IFRP',
                     r.update_date = row.modification_date;
+            
+            
 // nat duns <- identical duns
 Load CSV WITH headers from 'https://raw.githubusercontent.com/KevinReier/Neo4jSandbox/master/test_sap_export.csv' AS row fieldterminator '|' 
 WITH row, row.sr_supplier_national_mother_duns_id AS nat_duns_id
@@ -108,11 +135,7 @@ WHERE (NOT nat_duns_id  IN [ '#', '','NDM999999', 'NOH999999'] ) AND (NOT nat_du
     MATCH (child:Duns{duns:father.duns})
         WITH father, child
         Where Not (child)-[:BELONGS]-(father)
-        MERGE (child)-[r:BELONGS{origin:"IFRP"}]->(father)
-            SET 
-            //TODO: Change these accordingly!
-                r.validation_level = 'PYD', //arbitrary values: recommend current date and PYD level verification
-                r.update_date = '2020-01-02'; 
+        CREATE (child)-[r:BELONGS{origin:"IFRP",validation_level:'PYD',update_date:'2020-01-01'}]->(father);
 
 // natduns -> gmduns
 Load CSV WITH headers from 'https://raw.githubusercontent.com/KevinReier/Neo4jSandbox/master/test_sap_export.csv' AS row fieldterminator '|' 
@@ -124,9 +147,9 @@ WHERE (NOT nat_duns_id  IN [ '#', '','NDM999999', 'NOH999999'] ) AND (NOT nat_du
     WHERE (NOT gm_duns_id  IN [ '#', '','NDM999999', 'NOH999999'] ) AND (NOT gm_duns_id IS NULL)
         WITH DISTINCT (child) AS child, father, row
             WITH DISTINCT(father) AS father, child, row
-            MERGE (child)-[r:BELONGS{origin:"IFRP"}]->(father)
+            MERGE (child)-[r:BELONGS{validation_level:row.source}]->(father)
                 SET 
-                    r.validation_level = row.source,
+                    r.origin = 'IFRP'
                     r.update_date = row.modification_date;
 // gm duns <- self nat duns <- self duns 
 Load CSV WITH headers from 'https://raw.githubusercontent.com/KevinReier/Neo4jSandbox/master/test_sap_export.csv' AS row fieldterminator '|' 
@@ -137,20 +160,12 @@ WHERE (NOT gm_duns_id  IN [ '#', '','NDM999999', 'NOH999999'] ) AND (NOT gm_duns
     MATCH (child:NatDuns{duns:father.duns})
         WITH father, child
         Where Not (child)-[:BELONGS]-(father)
-        MERGE (child)-[r:BELONGS{origin:"IFRP"}]->(father)
-            SET 
-            //TODO: Change these accordingly!
-                r.validation_level = 'PYD', //arbitrary values: recommend current date and PYD level verification
-                r.update_date = '2020-01-02'
+        CREATE (child)-[:BELONGS{origin:"IFRP",validation_level:'PYD',update_date:'2020-01-01'}]->(father)
             WITH DISTINCT(child) as father
             MATCH (child:Duns{duns:father.duns})
                 WITH father, child
                 Where Not (child)-[:BELONGS]-(father)
-                MERGE (child)-[r:BELONGS{origin:"IFRP"}]->(father)
-                    SET 
-                    //TODO: Change these accordingly!
-                        r.validation_level = 'PYD', //arbitrary values: recommend current date and PYD level verification
-                        r.update_date = '2020-01-02'; 
+                CREATE (child)-[:BELONGS{origin:"IFRP",validation_level:'PYD',update_date:'2020-01-01'}]->(father);
               
 //invoice and order volume
 //LOAD CSV WITH HEADERS FROM 'file:///YP91FILEL_20190211.csv' AS row FIELDTERMINATOR '|'
@@ -162,3 +177,20 @@ WHERE (NOT gm_duns_id  IN [ '#', '','NDM999999', 'NOH999999'] ) AND (NOT gm_duns
 //              s.ordervolumemeur = toFloat(row.order_volume_eur) / (1000000),
 //              s.invoicevolumemeur = toFloat(row.invoice_volume_eur) / (1000000)
 
+
+
+//DELETE UNNECESSARY RELATIONSHIPS
+//duns -> natduns
+
+Load CSV WITH headers from 'https://raw.githubusercontent.com/KevinReier/Neo4jSandbox/master/test_sap_export.csv' AS row fieldterminator '|' 
+WITH row, row.sr_supplier_duns_id AS duns_id
+MATCH (child:Duns{duns:duns_id})
+WHERE (NOT duns_id  IN [ '#', '','NDM999999', 'NOH999999'] ) AND (NOT duns_id IS NULL)
+    WITH row, child, row.sr_supplier_national_mother_duns_id AS nat_duns_id
+    MATCH (father:NatDuns{duns:nat_duns_id})
+    WHERE (NOT nat_duns_id  IN [ '#', '','NDM999999', 'NOH999999'] ) AND (NOT nat_duns_id IS NULL) 
+        WITH DISTINCT (child) AS child, DISTINCT(father) AS father, row
+            MERGE (child)-[r:BELONGS{origin:"IFRP"}]->(father)
+                SET 
+                    r.validation_level = row.source,
+                    r.update_date = row.modification_date;
