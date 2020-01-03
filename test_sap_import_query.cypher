@@ -88,7 +88,6 @@ WHERE (not supplier_uid IS NULL) AND (not row.sr_supplier_id = '')
                              
 
 //duns -> natduns
-//TODO:FIX THE IF ELSE CASES WHEN EXISTING RELATIONSHIPS ARE DELETED
 Load CSV WITH headers from 'https://raw.githubusercontent.com/KevinReier/Neo4jSandbox/master/test_sap_export.csv' AS row fieldterminator '|' 
 WITH row, row.sr_supplier_duns_id AS duns_id
 MATCH (child:Duns{duns:duns_id})
@@ -96,47 +95,45 @@ WHERE (NOT duns_id  IN [ '#', '','NDM999999', 'NOH999999'] ) AND (NOT duns_id IS
     WITH row, child, row.sr_supplier_national_mother_duns_id AS nat_duns_id
     MATCH (father:NatDuns{duns:nat_duns_id})
     WHERE (NOT nat_duns_id  IN [ '#', '','NDM999999', 'NOH999999'] ) AND (NOT nat_duns_id IS NULL) 
-        WITH DISTINCT (child) AS child, row, father
-        WITH DISTINCT (father) AS father, child, row
+        WITH DISTINCT (child) AS child, row, father,exists((child)-[:BELONGS{validation_level:'PYD'}]->()) as pyd_exists
+        WITH DISTINCT (father) AS father, child, row, pyd_exists
             OPTIONAL MATCH (child)-[k:BELONGS{}]->(anyNode)
-            FOREACH(ignoreMe IN CASE WHEN NOT exists((child)-[:BELONGS{validation_level:'PYD'}]->()) THEN [1] ELSE [] END | 
-                FOREACH(ignoreMe IN CASE WHEN NOT k.validation_level = 'PYD' THEN [1] ELSE [] END | 
-                    DELETE k
-                )
+            WITH CASE WHEN anyNode.duns <> father.duns THEN k END AS del, father,child,row,pyd_exists
+            FOREACH(ignoreMe IN CASE WHEN NOT pyd_exists THEN [1] ELSE [] END | 
+                DELETE del
                 MERGE (child)-[y:BELONGS{validation_level:row.source}]->(father)
                     SET 
                         y.origin = 'IFRP',
                         y.update_date = row.modification_date
-            );
-            // FOREACH(ignoreMe IN CASE WHEN exists((child)-[:BELONGS{validation_level:'PYD'}]->()) THEN [1] ELSE [] END | 
-            //     FOREACH(ignoreMe IN CASE WHEN NOT k.validation_level = 'PYD' THEN [1] ELSE [] END | 
-            //         DELETE k
-            //     )
-            // );
-            
-            
-
-            // OPTIONAL MATCH 
-            // WHERE (NOT exists((child)-[k:BELONGS{validation_level:'PYD'}]->())) DELETE k 
-            // CREATE 
-
-            MERGE (child)-[r:BELONGS{validation_level:row.source}]->(father)
-                SET 
-                    r.origin = 'IFRP',
-                    r.update_date = row.modification_date;
-            
-            
+            )
+            WITH child, pyd_exists
+            OPTIONAL MATCH (child)-[k:BELONGS{}]->()
+            WHERE k.validation_level <> 'PYD'
+            FOREACH(ignoreMe IN CASE WHEN pyd_exists THEN [1] ELSE [] END | 
+                    DELETE k
+            );        
 // nat duns <- identical duns
 Load CSV WITH headers from 'https://raw.githubusercontent.com/KevinReier/Neo4jSandbox/master/test_sap_export.csv' AS row fieldterminator '|' 
 WITH row, row.sr_supplier_national_mother_duns_id AS nat_duns_id
 MATCH (father:NatDuns{duns:nat_duns_id})
 WHERE (NOT nat_duns_id  IN [ '#', '','NDM999999', 'NOH999999'] ) AND (NOT nat_duns_id IS NULL) 
     WITH DISTINCT(father) AS father
+    OPTIONAL MATCH (child:Duns{duns:father.duns})-[k:BELONGS{}]->(anyNode:NatDuns)
+            WHERE  anyNode.duns <> father.duns DELETE k
+    WITH father
     MATCH (child:Duns{duns:father.duns})
         WITH father, child
-        Where Not (child)-[:BELONGS]-(father)
+        Where Not (child)-[:BELONGS]->(father)
         CREATE (child)-[r:BELONGS{origin:"IFRP",validation_level:'PYD',update_date:'2020-01-01'}]->(father);
 
+
+
+
+
+
+
+
+//FIXME: ADD THE CASES FROM THE DUNS LEVEL TO THE OTHER LEVELS
 // natduns -> gmduns
 Load CSV WITH headers from 'https://raw.githubusercontent.com/KevinReier/Neo4jSandbox/master/test_sap_export.csv' AS row fieldterminator '|' 
 WITH row, row.sr_supplier_national_mother_duns_id  AS nat_duns_id
