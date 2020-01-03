@@ -1,24 +1,24 @@
 // CREATE THE NODES
 //dunsid
-LOAD CSV WITH HEADERS FROM 'file:///DNB_FINAL_Merged_Files_1812_1902_V2.csv' AS row FIELDTERMINATOR '|'
+LOAD CSV WITH HEADERS FROM 'https://raw.githubusercontent.com/KevinReier/Neo4jSandbox/master/test_dnb_export.csv' AS row FIELDTERMINATOR '|'
 WITH row, row.duns_no as dunsid, 'DNB_UNTRUST' AS origin
 WHERE NOT dunsid  IN [ '#', '','NDM999999', 'NOH999999'] AND dunsid IS NOT NULL
 MERGE (d:Duns{duns:dunsid})
-    SET
+    ON CREATE SET
         d.duns = dunsid,
-        d.dunsName = row.name
-        d.street = row.add
+        d.dunsName = row.name,
+        d.street = row.add,
         d.city = row.city,
         d.postalcode = row.post_code,
         d.countrycode = row.country_code,
         d.origin = origin;
 
 //natdunsid and its duns
-LOAD CSV WITH HEADERS FROM 'file:///DNB_FINAL_Merged_Files_1812_1902_V2.csv' AS row FIELDTERMINATOR '|'
+LOAD CSV WITH HEADERS FROM 'https://raw.githubusercontent.com/KevinReier/Neo4jSandbox/master/test_dnb_export.csv' AS row FIELDTERMINATOR '|'
 WITH row, row.du_duns as dunsid, 'DNB_UNTRUST' AS origin
 WHERE NOT dunsid  IN [ '#','', 'NDM999999', 'NOH999999'] AND dunsid IS NOT NULL
 MERGE (n:NatDuns{duns:dunsid})
-    SET
+    ON CREATE SET
         n.duns = dunsid,
         n.dunsName = row.du_name,
         n.street = row.du_add,
@@ -27,16 +27,16 @@ MERGE (n:NatDuns{duns:dunsid})
         n.countrycode = row.du_country_code,
         n.origin = origin             
     WITH DISTINCT n
-    MERGE (d:Duns{duns:n.duns])})
+    MERGE (d:Duns{duns:n.duns})
         ON CREATE SET
             d = n;
                        
 // gmduns and natduns and duns
-LOAD CSV WITH HEADERS FROM 'file:///DNB_FINAL_Merged_Files_1812_1902_V2.csv' AS row FIELDTERMINATOR '|'
+LOAD CSV WITH HEADERS FROM 'https://raw.githubusercontent.com/KevinReier/Neo4jSandbox/master/test_dnb_export.csv' AS row FIELDTERMINATOR '|'
 WITH row, row.gu_duns as dunsid, 'DNB_UNTRUST' AS origin
 WHERE NOT dunsid  IN [ '#', '', 'NDM999999', 'NOH999999'] AND dunsid IS NOT NULL
-MERGE (g:GmDuns{duns:dunsid})
-    SET
+MERGE (g:GlobalDuns{duns:dunsid})
+    ON CREATE SET
         g.duns = dunsid,
         g.dunsName = row.gu_name,
         g.street = row.gu_add,
@@ -55,12 +55,12 @@ MERGE (g:GmDuns{duns:dunsid})
                     
 // CREATE THE RELATIONSHIPS (IF THERE IS NOT A HIGHER VALUE RELATIONSHIP EXISTING) 
 // duns -> natduns
-LOAD CSV WITH HEADERS FROM 'file:///DNB_FINAL_Merged_Files_1812_1902_V2.csv' AS row FIELDTERMINATOR '|'
+LOAD CSV WITH HEADERS FROM 'https://raw.githubusercontent.com/KevinReier/Neo4jSandbox/master/test_dnb_export.csv' AS row FIELDTERMINATOR '|'
 WITH row, row.duns_no as dunsid
-        MATCH (child:Duns{supplierlocalid:dunsid})
+        MATCH (child:Duns{duns:dunsid})
         WHERE NOT dunsid  IN [ '#','', 'NDM999999', 'NOH999999'] AND dunsid IS NOT NULL
 WITH row, child, row.du_duns as dunsid
-        MATCH (father:NatDuns{supplierlocalid:dunsid})
+        MATCH (father:NatDuns{duns:dunsid})
         WHERE NOT dunsid  IN [ '#','', 'NDM999999', 'NOH999999'] AND dunsid IS NOT NULL
 WITH DISTINCT (child) as child, father
 WITH DISTINCT(father) as father, child
@@ -68,13 +68,21 @@ WITH DISTINCT(father) as father, child
         SET 
                r.update_date = '2019-02-18';
 
+
+
+
+
+
+
+
+
 // natduns -> gmduns
 LOAD CSV WITH HEADERS FROM 'file:///DNB_FINAL_Merged_Files_1812_1902_V2.csv' AS row FIELDTERMINATOR '|'
 WITH row, row.du_duns  as dunsid
         MATCH (child:NatDuns{supplierlocalid:dunsid})
         WHERE NOT dunsid  IN [ '#', '', 'NDM999999', 'NOH999999'] AND dunsid IS NOT NULL
 WITH row, child, row.gu_duns as dunsid
-        MATCH (father:GmDuns{supplierlocalid:dunsid})
+        MATCH (father:GlobalDuns{supplierlocalid:dunsid})
         WHERE NOT dunsid  IN [ '#', '','NDM999999', 'NOH999999'] AND dunsid IS NOT NULL
 WITH DISTINCT (child) as child, father
 WITH DISTINCT(father) as father, child

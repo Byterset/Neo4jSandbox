@@ -68,7 +68,7 @@ MERGE (g:GlobalDuns{duns:gm_duns_id})
                 d = n;
 
 // CREATE THE RELATIONSHIPS
-//local suppliers to DUNS level
+//local suppliers to DUNS level, if there is an old relationship remove it, since new local -> Duns mapping is completely trusted.
 Load CSV WITH headers from 'https://raw.githubusercontent.com/KevinReier/Neo4jSandbox/master/test_sap_export.csv' AS row fieldterminator '|' 
 WITH row, (row.sr_system_id + '_' + row.sr_supplier_id) AS supplier_uid
 MATCH (child:Supplier{srUniqueID:supplier_uid})
@@ -78,6 +78,8 @@ WHERE (not supplier_uid IS NULL) AND (not row.sr_supplier_id = '')
     WHERE (NOT duns_id  IN [ '#', '','NDM999999', 'NOH999999'] ) AND (NOT duns_id IS NULL)
         WITH DISTINCT (child) AS child, father, row
             WITH DISTINCT(father) AS father, child, row
+            MATCH (child)-[oldr:BELONGS]->(father)
+            DELETE oldr
             MERGE (child)-[r:BELONGS{origin:"IFRP"}]->(father)
                 SET 
                     r.validation_level = row.source,
