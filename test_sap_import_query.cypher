@@ -15,7 +15,7 @@
 
 //CREATE all nonexisting local suppliers WITH a unique id consisting of Source System and local ID
 Load CSV WITH headers from 'https://raw.githubusercontent.com/KevinReier/Neo4jSandbox/master/test_sap_export.csv' AS row fieldterminator '|' 
-WITH row, apoc.util.md5([row.sr_system_id + '_' + row.sr_supplier_id]) AS supplier_uid
+WITH row, (row.sr_system_id + '_' + row.sr_supplier_id) AS supplier_uid
 WHERE (NOT supplier_uid IS NULL) AND (NOT row.sr_supplier_id = '')
 MERGE (child:Supplier{srUniqueID:supplier_uid}) 
     ON CREATE SET 
@@ -46,9 +46,7 @@ MERGE (n:NatDuns{duns:nat_duns_id})
     WITH DISTINCT n
     MERGE (d:Duns{duns:n.duns})
         ON CREATE SET
-            d.origin = n.origin,
-            d.duns = n.duns,
-            d.dunsName = n.dunsName;
+            d = n;
 
 //CREATE all nonexisting GLOBAL-MOTHER-DUNS level nodes WITH their DUNS-ID as unique identifier
 //Also CREATE DUNS and NATDUNS level node/s if nonexisting
@@ -63,20 +61,16 @@ MERGE (g:GlobalDuns{duns:gm_duns_id})
     WITH DISTINCT g
     MERGE (n:NatDuns{duns:g.duns})
         ON CREATE SET
-            n.origin = g.origin,
-            n.duns = g.duns,
-            n.dunsName = g.dunsName
+            n = g
         WITH DISTINCT n
         MERGE (d:Duns{duns:n.duns})
             ON CREATE SET
-                d.origin = n.origin,
-                d.duns = n.duns,
-                d.dunsName = n.dunsName;
+                d = n;
 
 // CREATE THE RELATIONSHIPS
 //local suppliers to DUNS level
 Load CSV WITH headers from 'https://raw.githubusercontent.com/KevinReier/Neo4jSandbox/master/test_sap_export.csv' AS row fieldterminator '|' 
-WITH row, apoc.util.md5([row.sr_system_id + '_' + row.sr_supplier_id]) AS supplier_uid
+WITH row, (row.sr_system_id + '_' + row.sr_supplier_id) AS supplier_uid
 MATCH (child:Supplier{srUniqueID:supplier_uid})
 WHERE (not supplier_uid IS NULL) AND (not row.sr_supplier_id = '')
     WITH row, child, row.sr_supplier_duns_id AS duns_id

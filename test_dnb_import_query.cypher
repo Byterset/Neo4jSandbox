@@ -1,117 +1,59 @@
 // CREATE THE NODES
 //dunsid
 LOAD CSV WITH HEADERS FROM 'file:///DNB_FINAL_Merged_Files_1812_1902_V2.csv' AS row FIELDTERMINATOR '|'
-WITH row, apoc.util.md5(['DNB_'+ row.duns_no]) AS duns_hid, row.duns_no as dunsid, 'DNB_' AS prefix
-        WHERE NOT dunsid  IN [ '#', '','NDM999999', 'NOH999999'] AND dunsid IS NOT NULL
-WITH row, duns_hid, dunsid, prefix
-        MERGE (d:Duns{hid:duns_hid})
-               SET
-                       d.mdm_sysid = prefix,
-                       d.supplierlocalid = dunsid,
-                       d.supplieruniqueid = prefix + dunsid,
-                       d.duns = dunsid,
-                       d.name = coalesce(row.name + ' ' + row.snd_name, row.name),
-                       d.street = coalesce(row.add + '  ' + row.add_snd, row.add),
-                       d.city = row.city,
-                       d.postalcode = row.post_code,
-                       d.state = row.state,
-                       d.registerid = row.nat_id,
-                       d.countrycode = row.country_code,
-                       d.update_date = '2019-02-18',
-                       d.source = 'DNB';
-
+WITH row, row.duns_no as dunsid, 'DNB_UNTRUST' AS origin
+WHERE NOT dunsid  IN [ '#', '','NDM999999', 'NOH999999'] AND dunsid IS NOT NULL
+MERGE (d:Duns{duns:dunsid})
+    SET
+        d.duns = dunsid,
+        d.dunsName = row.name
+        d.street = row.add
+        d.city = row.city,
+        d.postalcode = row.post_code,
+        d.countrycode = row.country_code,
+        d.origin = origin;
 
 //natdunsid and its duns
 LOAD CSV WITH HEADERS FROM 'file:///DNB_FINAL_Merged_Files_1812_1902_V2.csv' AS row FIELDTERMINATOR '|'
-WITH row, apoc.util.md5(['natDNB_'+ row.du_duns]) AS duns_hid, row.du_duns as dunsid, 'natDNB_' AS prefix
-        WHERE NOT dunsid  IN [ '#','', 'NDM999999', 'NOH999999'] AND dunsid IS NOT NULL
-WITH row, duns_hid, dunsid, prefix
-        MERGE (n:NatDuns{hid:duns_hid})
-        SET
-                       n.mdm_sysid = prefix,
-                       n.supplierlocalid = dunsid,
-                       n.supplieruniqueid = prefix + dunsid,
-                       n.duns = dunsid,
-                       n.countrycode = row.du_country_code,
-                       n.name = row.du_name,
-                       n.street = row.du_add,
-                       n.city= row.du_city,
-                       n.postalcode = row.nat_postalcode,
-                       n.state = row.du_state,
-                       n.update_date = '2019-02-18',
-                       n.source = 'DNB'               
-WITH DISTINCT n
-    MERGE (n2:Duns{hid: apoc.util.md5(['DNB_'+ n.supplierlocalid])})
-               ON CREATE SET
-                       n2.mdm_sysid = 'DNB',
-                       n2.supplierlocalid = n.supplierlocalid,
-                       n2.supplieruniqueid = 'DNB_'+ n.supplierlocalid,
-                       n2.duns = n.supplierlocalid,
-                       n2.name = n.name,
-                       n2.countrycode = n.countrycode,
-                       n2.street = n.street,
-                       n2.city= n.city,
-                       n2.postalcode = n.postalcode,
-                       n2.state = n.state,
-                       n2.update_date = '2019-02-18',
-                       n2.source = 'DNB';
+WITH row, row.du_duns as dunsid, 'DNB_UNTRUST' AS origin
+WHERE NOT dunsid  IN [ '#','', 'NDM999999', 'NOH999999'] AND dunsid IS NOT NULL
+MERGE (n:NatDuns{duns:dunsid})
+    SET
+        n.duns = dunsid,
+        n.dunsName = row.du_name,
+        n.street = row.du_add,
+        n.city= row.du_city,
+        n.postalcode = row.nat_postalcode,
+        n.countrycode = row.du_country_code,
+        n.origin = origin             
+    WITH DISTINCT n
+    MERGE (d:Duns{duns:n.duns])})
+        ON CREATE SET
+            d = n;
                        
-
 // gmduns and natduns and duns
 LOAD CSV WITH HEADERS FROM 'file:///DNB_FINAL_Merged_Files_1812_1902_V2.csv' AS row FIELDTERMINATOR '|'
-WITH row, apoc.util.md5(['gmDNB_'+ row.gu_duns]) AS duns_hid, row.gu_duns as dunsid, 'gmDNB_' AS prefix
-        WHERE NOT dunsid  IN [ '#', '', 'NDM999999', 'NOH999999'] AND dunsid IS NOT NULL
-WITH row, duns_hid, dunsid, prefix
-        MERGE (g:GmDuns{hid:duns_hid})
-        SET
-                       g.mdm_sysid = prefix,
-                       g.supplierlocalid = dunsid,
-                       g.supplieruniqueid = prefix + dunsid,
-                       g.duns = dunsid,
-                       g.countrycode = row.gu_country_code,
-                       g.name = row.gu_name,
-                       g.street = row.gu_add,
-                       g.city = row.gu_city,
-                       g.postalcode = row.gu_post_code,
-                       g.state = row.gu_state,
-                       g.update_date = '2019-02-18',
-                       g.source = 'DNB'
-WITH DISTINCT g
-        MERGE (n:NatDuns{hid:apoc.util.md5(['natDNB_'+ g.supplierlocalid])})
-        ON CREATE SET
-               n.mdm_sysid = 'natDNB',
-               n.supplierlocalid = g.supplierlocalid,
-               n.supplieruniqueid = 'natDNB_'+ g.supplierlocalid,
-               n.duns = g.supplierlocalid,
-               n.name = g.name,
-               n.countrycode = g.countrycode,
-               n.street = g.street,
-               n.city = g.city,
-               n.postalcode = g.postalcode,
-               n.state = g.state,
-               n.update_date = '2019-02-18',
-               n.source = 'DNB'       
-WITH DISTINCT n
-    MERGE (d:Duns{hid: apoc.util.md5(['DNB_'+ n.supplierlocalid])})
-               ON CREATE SET
-                       d.mdm_sysid = 'DNB',
-                       d.supplierlocalid = n.supplierlocalid,
-                       d.supplieruniqueid = 'DNB_'+ n.supplierlocalid,
-                       d.duns = n.supplierlocalid,
-                       d.name = n.name,
-                       d.countrycode = n.countrycode,
-                       d.street = n.street,
-                       d.city = n.city,
-                       d.postalcode = n.postalcode,
-                       d.state = n.state,
-                       d.update_date = '2019-02-18',
-                       d.source = 'DNB';
-
-                       
-                       
-// CREATE THE RELATIONSHIPS
-
-        
+WITH row, row.gu_duns as dunsid, 'DNB_UNTRUST' AS origin
+WHERE NOT dunsid  IN [ '#', '', 'NDM999999', 'NOH999999'] AND dunsid IS NOT NULL
+MERGE (g:GmDuns{duns:dunsid})
+    SET
+        g.duns = dunsid,
+        g.dunsName = row.gu_name,
+        g.street = row.gu_add,
+        g.city= row.gu_city,
+        g.postalcode = row.gu_postalcode,
+        g.countrycode = row.gu_country_code,
+        g.origin = origin
+    WITH DISTINCT g
+        MERGE (n:NatDuns{duns:g.duns})
+            ON CREATE SET
+                n = g    
+            WITH DISTINCT n
+            MERGE (d:Duns{duns:n.duns})
+                ON CREATE SET
+                    d = n;
+                    
+// CREATE THE RELATIONSHIPS (IF THERE IS NOT A HIGHER VALUE RELATIONSHIP EXISTING) 
 // duns -> natduns
 LOAD CSV WITH HEADERS FROM 'file:///DNB_FINAL_Merged_Files_1812_1902_V2.csv' AS row FIELDTERMINATOR '|'
 WITH row, row.duns_no as dunsid
