@@ -70,10 +70,7 @@ MERGE (g:GlobalDuns{duns:dunsid})
             MERGE (d:Duns{duns:n.duns})
                 ON CREATE SET
                     d = n;
-
-//------------------------------------------------------------------------------
-//-------------------------CREATE THE RELATIONSHIPS-----------------------------
-//------------------------------------------------------------------------------
+                    
 //CREATE duns -> natduns
 LOAD CSV WITH HEADERS FROM 'https://raw.githubusercontent.com/KevinReier/Neo4jSandbox/master/test_dnb_export.csv' AS row FIELDTERMINATOR '|'
 WITH row, row.duns_no AS duns_id
@@ -115,8 +112,6 @@ WHERE (NOT nat_duns_id  IN [ '#', '','NDM999999', 'NOH999999'] ) AND (NOT nat_du
         Where Not (child)-[:BELONGS]->(father)
         //TODO: APPLY NEW DATE
         CREATE (child)-[r:BELONGS{origin:"DNB_UNTRUST",validation_level:'DNB',update_date:'2020-01-01'}]->(father);
-
-
 
 //CREATE natduns -> gmduns
 LOAD CSV WITH HEADERS FROM 'https://raw.githubusercontent.com/KevinReier/Neo4jSandbox/master/test_dnb_export.csv' AS row FIELDTERMINATOR '|'
