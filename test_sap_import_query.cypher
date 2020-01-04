@@ -12,16 +12,11 @@
 //      4.2) The DNB Input which should be loaded directly afterwards does not contain the local supplier information 
 
 //TODO: ADD REST OF MASTERDATA FROM FINAL FILE STRUCTURE, NOW: ONLY INFO NECESSARY FOR TESTING
-
 //CREATE all nonexisting local suppliers WITH a unique id consisting of Source System and local ID
-Load CSV WITH headers from 'https://raw.githubusercontent.com/KevinReier/Neo4jSandbox/master/test_sap_export.csv' AS row fieldterminator '|' 
+Load CSV WITH headers from 'https://raw.githubusercontent.com/KevinReier/Neo4jSandbox/master/test_sap_export.csv' AS row fieldterminator '|'
 WITH row, (row.sr_system_id + '_' + row.sr_supplier_id) AS supplier_uid
-WHERE (NOT supplier_uid IS NULL) AND (NOT row.sr_supplier_id = '')
-MERGE (child:Supplier{srUniqueID:supplier_uid}) 
-    ON CREATE SET 
-        child.systemID = row.sr_system_id,
-        child.supplierID = row.sr_supplier_id,
-        child.srUniqueID = row.sr_system_id + '_' + row.sr_supplier_id;
+WHERE (NOT supplier_uid IS NULL) AND (NOT row.sr_supplier_id = '') AND (NOT row.sr_system_id = '')
+MERGE (child:Supplier{srUniqueID:supplier_uid}); 
 
 //CREATE all nonexisting DUNS level nodes WITH their DUNS-ID as unique identifier
 Load CSV WITH headers from 'https://raw.githubusercontent.com/KevinReier/Neo4jSandbox/master/test_sap_export.csv' AS row fieldterminator '|' 
@@ -82,10 +77,15 @@ WHERE (not supplier_uid IS NULL) AND (not row.sr_supplier_id = '')
     WHERE (NOT duns_id  IN [ '#', '','NDM999999', 'NOH999999'] ) AND (NOT duns_id IS NULL)
         WITH DISTINCT (child) AS child, row, father
             WITH DISTINCT (father) as father, child, row
-            OPTIONAL MATCH (child)-[k:BELONGS]->(altFather:Duns)
-            WHERE (NOT altFather.duns = father.duns) OR (NOT k.origin = 'IFRP') OR (k.origin IS NULL) DELETE k
-            MERGE (child)-[r:BELONGS]->(father) 
-                SET r.origin = 'IFRP';
+            // OPTIONAL MATCH (child)-[k:BELONGS]->(altFather:Duns)
+            // WHERE (NOT altFather.duns = father.duns) OR (NOT k.origin = 'IFRP') OR (k.origin IS NULL) 
+            // DELETE k
+            OPTIONAL MATCH (child)-[k:BELONGS]->(anyNode:Duns)
+            WITH (CASE WHEN (anyNode.duns <> father.duns) THEN k END) AS del, father,child,row
+                DELETE del
+                MERGE (child)-[y:BELONGS{origin:'IFRP'}]->(father)
+                    SET 
+                        y.validation_level = row.source;
             
                          
 //CREATE duns -> natduns
@@ -121,7 +121,7 @@ WITH row, row.sr_supplier_national_mother_duns_id AS nat_duns_id
 MATCH (father:NatDuns{duns:nat_duns_id})
 WHERE (NOT nat_duns_id  IN [ '#', '','NDM999999', 'NOH999999'] ) AND (NOT nat_duns_id IS NULL) 
     WITH DISTINCT(father) AS father
-    OPTIONAL MATCH (child:Duns{duns:father.duns})-[k:BELONGS]->(anyNode:NatDuns)
+    OPTIONAL MATCH (child:Duns{duns:father.duns})-[k:BELONGS{origin:'IFRP'}]->(anyNode:NatDuns)
             WHERE  anyNode.duns <> father.duns DELETE k
     WITH father
     MATCH (child:Duns{duns:father.duns})
@@ -166,7 +166,7 @@ MATCH (father:GlobalDuns{duns:gm_duns_id})
 WHERE (NOT gm_duns_id  IN [ '#', '','NDM999999', 'NOH999999'] ) AND (NOT gm_duns_id IS NULL)
     WITH DISTINCT(father) AS father
     //DELETE obsolete relationships to other nodes, if child-DUNS = father-DUNS the relationship is trivial
-    OPTIONAL MATCH (child:NatDuns{duns:father.duns})-[k:BELONGS]->(anyNode:GlobalDuns)
+    OPTIONAL MATCH (child:NatDuns{duns:father.duns})-[k:BELONGS{origin:'IFRP'}]->(anyNode:GlobalDuns)
             WHERE  anyNode.duns <> father.duns DELETE k
     WITH father
     MATCH (child:NatDuns{duns:father.duns})
@@ -174,7 +174,7 @@ WHERE (NOT gm_duns_id  IN [ '#', '','NDM999999', 'NOH999999'] ) AND (NOT gm_duns
         Where Not (child)-[:BELONGS]->(father)
         CREATE (child)-[r:BELONGS{origin:"IFRP",validation_level:'PYD',update_date:'2020-01-01'}]->(father)
             WITH DISTINCT(child) as father //go one level deeper, now NatDuns as father with child Duns
-            OPTIONAL MATCH (child:Duns{duns:father.duns})-[k:BELONGS{}]->(anyNode:NatDuns)
+            OPTIONAL MATCH (child:Duns{duns:father.duns})-[k:BELONGS{origin:'IFRP'}]->(anyNode:NatDuns)
             WHERE  anyNode.duns <> father.duns DELETE k
                 WITH father
                 MATCH (child:Duns{duns:father.duns})

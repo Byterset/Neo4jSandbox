@@ -74,7 +74,6 @@ MERGE (g:GlobalDuns{duns:dunsid})
 //------------------------------------------------------------------------------
 //-------------------------CREATE THE RELATIONSHIPS-----------------------------
 //------------------------------------------------------------------------------
-
 //CREATE duns -> natduns
 LOAD CSV WITH HEADERS FROM 'https://raw.githubusercontent.com/KevinReier/Neo4jSandbox/master/test_dnb_export.csv' AS row FIELDTERMINATOR '|'
 WITH row, row.duns_no AS duns_id
@@ -108,7 +107,7 @@ WITH row, row.du_duns AS nat_duns_id
 MATCH (father:NatDuns{duns:nat_duns_id})
 WHERE (NOT nat_duns_id  IN [ '#', '','NDM999999', 'NOH999999'] ) AND (NOT nat_duns_id IS NULL) 
     WITH DISTINCT(father) AS father
-    OPTIONAL MATCH (child:Duns{duns:father.duns})-[k:BELONGS]->(anyNode:NatDuns)
+    OPTIONAL MATCH (child:Duns{duns:father.duns})-[k:BELONGS{origin:'DNB_UNTRUST'}]->(anyNode:NatDuns)
             WHERE  anyNode.duns <> father.duns DELETE k
     WITH father
     MATCH (child:Duns{duns:father.duns})
@@ -155,7 +154,7 @@ MATCH (father:GlobalDuns{duns:gm_duns_id})
 WHERE (NOT gm_duns_id  IN [ '#', '','NDM999999', 'NOH999999'] ) AND (NOT gm_duns_id IS NULL)
     WITH DISTINCT(father) AS father
     //DELETE obsolete relationships to other nodes, if child-DUNS = father-DUNS the relationship is trivial
-    OPTIONAL MATCH (child:NatDuns{duns:father.duns})-[k:BELONGS]->(anyNode:GlobalDuns)
+    OPTIONAL MATCH (child:NatDuns{duns:father.duns})-[k:BELONGS{origin:'DNB_UNTRUST'}]->(anyNode:GlobalDuns)
             WHERE  anyNode.duns <> father.duns DELETE k
     WITH father
     MATCH (child:NatDuns{duns:father.duns})
@@ -163,7 +162,7 @@ WHERE (NOT gm_duns_id  IN [ '#', '','NDM999999', 'NOH999999'] ) AND (NOT gm_duns
         Where Not (child)-[:BELONGS]->(father)
         CREATE (child)-[r:BELONGS{origin:"DNB_UNTRUST",validation_level:'PYD',update_date:'2020-01-01'}]->(father) //TODO: APPLY NEW DATE
             WITH DISTINCT(child) as father //go one level deeper, now NatDuns as father with child Duns
-            OPTIONAL MATCH (child:Duns{duns:father.duns})-[k:BELONGS{}]->(anyNode:NatDuns)
+            OPTIONAL MATCH (child:Duns{duns:father.duns})-[k:BELONGS{origin:'DNB_UNTRUST'}]->(anyNode:NatDuns)
             WHERE  anyNode.duns <> father.duns DELETE k
                 WITH father
                 MATCH (child:Duns{duns:father.duns})
