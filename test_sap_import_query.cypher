@@ -105,7 +105,6 @@ WHERE (NOT duns_id  IN [ '#', '','NDM999999', 'NOH999999'] ) AND (NOT duns_id IS
                 DELETE del
                 MERGE (child)-[y:BELONGS{origin:'IFRP',validation_level:row.source}]->(father)
                     SET 
-                        //y.validation_level = row.source,
                         y.update_date = row.modification_date
             )
             //IF there is an 'PYD' level relationship existing: delete obsolete other relationships and ignore CSV rel. since PYD is highest value
@@ -127,6 +126,7 @@ WHERE (NOT nat_duns_id  IN [ '#', '','NDM999999', 'NOH999999'] ) AND (NOT nat_du
     MATCH (child:Duns{duns:father.duns})
         WITH father, child
         Where Not (child)-[:BELONGS]->(father)
+        //TODO:APPLY NEW DATE
         CREATE (child)-[r:BELONGS{origin:"IFRP",validation_level:'PYD',update_date:'2020-01-01'}]->(father);
 
 
@@ -149,7 +149,6 @@ WHERE (NOT nat_duns_id  IN [ '#', '','NDM999999', 'NOH999999'] ) AND (NOT nat_du
                 DELETE del
                 MERGE (child)-[y:BELONGS{origin:'IFRP',validation_level:row.source}]->(father)
                     SET 
-                        //y.validation_level = row.source,
                         y.update_date = row.modification_date
             )
             //IF there is an 'PYD' level relationship existing: delete obsolete other relationships and ignore CSV rel. since PYD is highest value
@@ -172,6 +171,7 @@ WHERE (NOT gm_duns_id  IN [ '#', '','NDM999999', 'NOH999999'] ) AND (NOT gm_duns
     MATCH (child:NatDuns{duns:father.duns})
         WITH father, child
         Where Not (child)-[:BELONGS]->(father)
+        //TODO:APPLY NEW DATE
         CREATE (child)-[r:BELONGS{origin:"IFRP",validation_level:'PYD',update_date:'2020-01-01'}]->(father)
             WITH DISTINCT(child) as father //go one level deeper, now NatDuns as father with child Duns
             OPTIONAL MATCH (child:Duns{duns:father.duns})-[k:BELONGS{origin:'IFRP'}]->(anyNode:NatDuns)
@@ -180,4 +180,5 @@ WHERE (NOT gm_duns_id  IN [ '#', '','NDM999999', 'NOH999999'] ) AND (NOT gm_duns
                 MATCH (child:Duns{duns:father.duns})
                     WITH father, child
                     Where Not (child)-[:BELONGS]->(father)
+                    //TODO:APPLY NEW DATE
                     CREATE (child)-[r:BELONGS{origin:"IFRP",validation_level:'PYD',update_date:'2020-01-01'}]->(father);
