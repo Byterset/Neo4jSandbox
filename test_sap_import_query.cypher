@@ -103,9 +103,9 @@ WHERE (NOT duns_id  IN [ '#', '','NDM999999', 'NOH999999'] ) AND (NOT duns_id IS
             WITH (CASE WHEN (anyNode.duns <> father.duns) THEN k END) AS del, father,child,row,pyd_exists
             FOREACH(cond_clause IN CASE WHEN NOT pyd_exists THEN [1] ELSE [] END | 
                 DELETE del
-                MERGE (child)-[y:BELONGS{origin:'IFRP'}]->(father)
+                MERGE (child)-[y:BELONGS{origin:'IFRP',validation_level:row.source}]->(father)
                     SET 
-                        y.validation_level = row.source,
+                        //y.validation_level = row.source,
                         y.update_date = row.modification_date
             )
             //IF there is an 'PYD' level relationship existing: delete obsolete other relationships and ignore CSV rel. since PYD is highest value
@@ -147,9 +147,9 @@ WHERE (NOT nat_duns_id  IN [ '#', '','NDM999999', 'NOH999999'] ) AND (NOT nat_du
             WITH CASE WHEN anyNode.duns <> father.duns THEN k END AS del, father,child,row,pyd_exists
             FOREACH(cond_clause IN CASE WHEN NOT pyd_exists THEN [1] ELSE [] END | 
                 DELETE del
-                MERGE (child)-[y:BELONGS{origin:'IFRP'}]->(father)
+                MERGE (child)-[y:BELONGS{origin:'IFRP',validation_level:row.source}]->(father)
                     SET 
-                        y.validation_level = row.source,
+                        //y.validation_level = row.source,
                         y.update_date = row.modification_date
             )
             //IF there is an 'PYD' level relationship existing: delete obsolete other relationships and ignore CSV rel. since PYD is highest value

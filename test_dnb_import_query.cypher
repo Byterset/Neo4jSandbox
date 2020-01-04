@@ -70,7 +70,6 @@ MERGE (g:GlobalDuns{duns:dunsid})
             MERGE (d:Duns{duns:n.duns})
                 ON CREATE SET
                     d = n;
-                    
 
 //------------------------------------------------------------------------------
 //-------------------------CREATE THE RELATIONSHIPS-----------------------------
