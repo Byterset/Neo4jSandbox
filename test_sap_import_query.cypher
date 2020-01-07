@@ -99,10 +99,11 @@ WHERE (NOT duns_id  IN [ '#', '','NDM999999', 'NOH999999'] ) AND (NOT duns_id IS
         WITH DISTINCT (child) AS child, row, father, exists((child)-[:BELONGS{validation_level:'PYD'}]->(:NatDuns)) as pyd_exists
         WITH DISTINCT (father) AS father, child, row, pyd_exists
             //Conditional Relationships with FOREACH Clause acting as 'IF'
-            OPTIONAL MATCH (child)-[k:BELONGS{origin:'IFRP'}]->(anyNode:NatDuns)
-            WITH (CASE WHEN (anyNode.duns <> father.duns) THEN k END) AS del, father,child,row,pyd_exists
+            //OPTIONAL MATCH (child)-[k:BELONGS{origin:'IFRP'}]->(anyNode:NatDuns)
+            // WITH (CASE WHEN (anyNode.duns <> father.duns) THEN k END) AS del, father,child,row,pyd_exists
+            WITH father,child,row,pyd_exists
             FOREACH(cond_clause IN CASE WHEN NOT pyd_exists THEN [1] ELSE [] END | 
-                DELETE del
+                //DELETE k
                 MERGE (child)-[y:BELONGS{origin:'IFRP',validation_level:row.source}]->(father)
                     SET 
                         y.update_date = row.modification_date
@@ -141,12 +142,13 @@ WHERE (NOT nat_duns_id  IN [ '#', '','NDM999999', 'NOH999999'] ) AND (NOT nat_du
         WITH DISTINCT (child) AS child, row, father, exists((child)-[:BELONGS{validation_level:'PYD'}]->(:GlobalDuns)) as pyd_exists
         WITH DISTINCT (father) AS father, child, row, pyd_exists
             //Conditional Relationships with FOREACH Clause acting as 'IF'
-            OPTIONAL MATCH (child)-[k:BELONGS{origin:'IFRP'}]->(anyNode:GlobalDuns)
+            //OPTIONAL MATCH (child)-[k:BELONGS{origin:'IFRP'}]->(anyNode:GlobalDuns)
             //IF there is no existing 'PYD' level relationship: delete rels not between child and father based on CSV
             //Then Merge new Connection
-            WITH CASE WHEN anyNode.duns <> father.duns THEN k END AS del, father,child,row,pyd_exists
+            //WITH CASE WHEN anyNode.duns <> father.duns THEN k END AS del, father,child,row,pyd_exists
+            WITH father, child, row, pyd_exists
             FOREACH(cond_clause IN CASE WHEN NOT pyd_exists THEN [1] ELSE [] END | 
-                DELETE del
+                //DELETE del
                 MERGE (child)-[y:BELONGS{origin:'IFRP',validation_level:row.source}]->(father)
                     SET 
                         y.update_date = row.modification_date

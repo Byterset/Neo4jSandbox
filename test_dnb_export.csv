@@ -1,3 +1,4 @@
 "duns_no"|"name"|"add"|"city"|"post_code"|"country_code"|"du_duns"|"du_name"|"du_add"|"du_city"|"du_post_code"|"du_country_code"|"gu_duns"|"gu_name"|"gu_add"|"gu_city"|"gu_post_code"|"gu_country_code"
 "1"|"DUNS1"|"street1"|"city1"|"00001"|"US"|"5"|"DUNS5"|"street5"|"city5"|"00005"|"US"|"10"|"DUNS10"|"street10"|"city10"|"00010"|"US"
 "2"|"DUNS2"|"street1"|"city2"|"00002"|"US"|"5"|"DUNS5"|"street5"|"city5"|"00005"|"US"|"10"|"DUNS10"|"street10"|"city10"|"00010"|"US"
+"5"|"DUNS10"|"street10"|"city10"|"00010"|"FR"|"5"|"DUNS5"|"street5"|"city5"|"00005"|"US"|"10"|"DUNS10"|"street10"|"city10"|"00010"|"US"
