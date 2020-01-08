@@ -38,10 +38,10 @@ MERGE (n:NatDuns{duns:nat_duns_id})
         n.origin = origin,
         n.duns = nat_duns_id,
         n.dunsName = row.sr_supplier_national_mother_duns_name
-    WITH DISTINCT n
-    MERGE (d:Duns{duns:n.duns})
-        ON CREATE SET
-            d = n;
+WITH DISTINCT n
+MERGE (d:Duns{duns:n.duns})
+    ON CREATE SET
+        d = n;
 
 //CREATE all nonexisting GLOBAL-MOTHER-DUNS level nodes WITH their DUNS-ID as unique identifier
 //Also CREATE DUNS and NATDUNS level node/s if nonexisting
@@ -53,14 +53,14 @@ MERGE (g:GlobalDuns{duns:gm_duns_id})
         g.origin = origin,
         g.duns = gm_duns_id,
         g.dunsName = row.sr_supplier_global_mother_duns_name
-    WITH DISTINCT g
-    MERGE (n:NatDuns{duns:g.duns})
-        ON CREATE SET
-            n = g
-        WITH DISTINCT n
-        MERGE (d:Duns{duns:n.duns})
-            ON CREATE SET
-                d = n;
+WITH DISTINCT g
+MERGE (n:NatDuns{duns:g.duns})
+    ON CREATE SET
+        n = g
+WITH DISTINCT n
+MERGE (d:Duns{duns:n.duns})
+    ON CREATE SET
+        d = n;
 
 //------------------------------------------------------------------------------
 //-------------------------CREATE THE RELATIONSHIPS-----------------------------
@@ -77,9 +77,6 @@ WHERE (not supplier_uid IS NULL) AND (not row.sr_supplier_id = '')
     WHERE (NOT duns_id  IN [ '#', '','NDM999999', 'NOH999999'] ) AND (NOT duns_id IS NULL)
         WITH DISTINCT (child) AS child, row, father
             WITH DISTINCT (father) as father, child, row
-            // OPTIONAL MATCH (child)-[k:BELONGS]->(altFather:Duns)
-            // WHERE (NOT altFather.duns = father.duns) OR (NOT k.origin = 'IFRP') OR (k.origin IS NULL) 
-            // DELETE k
             OPTIONAL MATCH (child)-[k:BELONGS]->(anyNode:Duns)
             WITH (CASE WHEN (anyNode.duns <> father.duns) THEN k END) AS del, father,child,row
                 DELETE del
@@ -87,13 +84,12 @@ WHERE (not supplier_uid IS NULL) AND (not row.sr_supplier_id = '')
                     SET 
                         y.validation_level = row.source;
 
+
+//CREATE duns -> natduns
 //MARK ALL EXISTING RELATIONSHIPS AS PREEXISTING
 MATCH (d:Duns)-[r:BELONGS]->(n:NatDuns)
-SET r.is_preexisting = true;  
-MATCH (d:NatDuns)-[r:BELONGS]->(n:GlobalDuns)
-SET r.is_preexisting = true;         
-                         
-//CREATE duns -> natduns
+WHERE r.is_preexisting = false
+SET r.is_preexisting = true;                               
 //Additionally: if there is not already a PYD edge existing - create the edge from the IFRP export CSV
 Load CSV WITH headers from 'https://raw.githubusercontent.com/KevinReier/Neo4jSandbox/master/test_sap_export.csv' AS row fieldterminator '|' 
 WITH row, row.sr_supplier_duns_id AS duns_id
@@ -103,47 +99,43 @@ WHERE (NOT duns_id  IN [ '#', '','NDM999999', 'NOH999999'] ) AND (NOT duns_id IS
     MATCH (father:NatDuns{duns:nat_duns_id})
     WHERE (NOT nat_duns_id  IN [ '#', '','NDM999999', 'NOH999999'] ) AND (NOT nat_duns_id IS NULL) 
         WITH DISTINCT (child) AS child, row, father, exists((child)-[:BELONGS{validation_level:'PYD',is_preexisting:true}]->(:NatDuns)) as pyd_exists
-            OPTIONAL MATCH (child)-[k:BELONGS{origin:'IFRP',is_preexisting:true}]->(:NatDuns)
-            WHERE k.validation_level <> 'PYD' 
-                DELETE k
-        WITH DISTINCT (father) AS father, child, row, pyd_exists
+            WITH DISTINCT (father) AS father, child, row, pyd_exists
             //Conditional Relationships with FOREACH Clause acting as 'IF'     
             FOREACH(cond_clause IN CASE WHEN NOT pyd_exists THEN [1] ELSE [] END | 
-                //DELETE k
-                MERGE (child)-[y:BELONGS{origin:'IFRP'}]->(father)
+                MERGE (child)-[y:BELONGS]->(father)
                     SET 
+                        y.origin = 'IFRP',
                         y.validation_level = row.source,
                         y.update_date = row.modification_date
-            );
-            // //IF there is an 'PYD' level relationship existing: delete obsolete other relationships and ignore CSV rel. since PYD is highest value
-            // WITH child, pyd_exists
-            // OPTIONAL MATCH (child)-[k:BELONGS{origin:'IFRP'}]->(:NatDuns) 
-            // WHERE pyd_exists AND k.validation_level <> 'PYD' 
-            // FOREACH(cond_clause IN CASE WHEN pyd_exists THEN [1] ELSE [] END | 
-            //         DELETE k
-            // )
-        
-// nat duns <- identical duns
+                    REMOVE y.is_preexisting
+            )
+            WITH father,child
+            OPTIONAL MATCH (child)-[k:BELONGS{is_preexisting:true}]->(anyNat:NatDuns)
+            WHERE k.validation_level <> 'PYD' AND (anyNat.duns <> father.duns)
+            DELETE k;
+//nat duns <- identical duns
 Load CSV WITH headers from 'https://raw.githubusercontent.com/KevinReier/Neo4jSandbox/master/test_sap_export.csv' AS row fieldterminator '|' 
 WITH row, row.sr_supplier_national_mother_duns_id AS nat_duns_id
 MATCH (father:NatDuns{duns:nat_duns_id})
 WHERE (NOT nat_duns_id  IN [ '#', '','NDM999999', 'NOH999999'] ) AND (NOT nat_duns_id IS NULL) 
     WITH DISTINCT(father) AS father
-    OPTIONAL MATCH (child:Duns{duns:father.duns})-[k:BELONGS{origin:'IFRP'}]->(anyNode:NatDuns)
-            WHERE  anyNode.duns <> father.duns DELETE k
-    WITH father
+    // OPTIONAL MATCH (child:Duns{duns:father.duns})-[k:BELONGS{origin:'IFRP'}]->(anyNode:NatDuns)
+    //         WHERE  anyNode.duns <> father.duns DELETE k
+    // WITH father
     MATCH (child:Duns{duns:father.duns})
         WITH father, child
         Where Not (child)-[:BELONGS]->(father)
         //TODO:APPLY NEW DATE
         CREATE (child)-[r:BELONGS{origin:"IFRP",validation_level:'PYD',update_date:'2020-01-01'}]->(father);
-
+MATCH (d:Duns)-[r:BELONGS]->(n:NatDuns)
+WHERE (NOT r.is_preexisting IS NULL)
+REMOVE r.is_preexisting;  
 
 //CREATE natduns -> gmduns
-//First delete all relationships that are not PYD level
+//MARK ALL EXISTING RELATIONSHIPS AS PREEXISTING
 MATCH (d:NatDuns)-[r:BELONGS]->(n:GlobalDuns)
-WHERE r.validation_level <> 'PYD' DELETE r;
-//Additionally: if there is not already a PYD edge existing - create the edge from the IFRP export CSV
+WHERE r.is_preexisting = false
+SET r.is_preexisting = true;    
 Load CSV WITH headers from 'https://raw.githubusercontent.com/KevinReier/Neo4jSandbox/master/test_sap_export.csv' AS row fieldterminator '|' 
 WITH row, row.sr_supplier_national_mother_duns_id  AS nat_duns_id
 MATCH (child:NatDuns{duns:nat_duns_id})
@@ -151,29 +143,20 @@ WHERE (NOT nat_duns_id  IN [ '#', '','NDM999999', 'NOH999999'] ) AND (NOT nat_du
     WITH row, child, row.sr_supplier_global_mother_duns_id AS gm_duns_id
     MATCH (father:GlobalDuns{duns:gm_duns_id})
     WHERE (NOT gm_duns_id  IN [ '#', '','NDM999999', 'NOH999999'] ) AND (NOT gm_duns_id IS NULL)      
-        WITH DISTINCT (child) AS child, row, father, exists((child)-[:BELONGS{validation_level:'PYD'}]->(:GlobalDuns)) as pyd_exists
+        WITH DISTINCT (child) AS child, row, father, exists((child)-[:BELONGS{validation_level:'PYD', is_preexisting:true}]->(:GlobalDuns)) as pyd_exists
         WITH DISTINCT (father) AS father, child, row, pyd_exists
-            
-            //Conditional Relationships with FOREACH Clause acting as 'IF'
-            //OPTIONAL MATCH (child)-[k:BELONGS{origin:'IFRP'}]->(anyNode:GlobalDuns)
-            //IF there is no existing 'PYD' level relationship: delete rels not between child and father based on CSV
-            //Then Merge new Connection
-            //WITH CASE WHEN anyNode.duns <> father.duns THEN k END AS del, father,child,row,pyd_exists
-            // WITH father, child, row, pyd_exists
             FOREACH(cond_clause IN CASE WHEN NOT pyd_exists THEN [1] ELSE [] END | 
-                //DELETE del
-                MERGE (child)-[y:BELONGS{origin:'IFRP'}]->(father)
+                MERGE (child)-[y:BELONGS]->(father)
                     SET 
+                        y.origin = 'IFRP',
+                        y.is_preexisting = false,
                         y.validation_level = row.source
                         y.update_date = row.modification_date
-            );
-            //IF there is an 'PYD' level relationship existing: delete obsolete other relationships and ignore CSV rel. since PYD is highest value
-            // WITH child, pyd_exists
-            // OPTIONAL MATCH (child)-[k:BELONGS{origin:'IFRP'}]->(:GlobalDuns) 
-            // WHERE pyd_exists AND k.validation_level <> 'PYD' 
-            // FOREACH(cond_clause IN CASE WHEN pyd_exists THEN [1] ELSE [] END | 
-            //         DELETE k
-            // );        
+            )
+            WITH father,child
+            OPTIONAL MATCH (child)-[k:BELONGS{is_preexisting:true}]->(anyGlob:GlobalDuns)
+            WHERE k.validation_level <> 'PYD' AND (anyGlob.duns <> father.duns)
+                DELETE k;   
 // gm duns <- self nat duns <- self duns 
 Load CSV WITH headers from 'https://raw.githubusercontent.com/KevinReier/Neo4jSandbox/master/test_sap_export.csv' AS row fieldterminator '|' 
 WITH row, row.sr_supplier_global_mother_duns_id AS gm_duns_id
@@ -181,20 +164,23 @@ MATCH (father:GlobalDuns{duns:gm_duns_id})
 WHERE (NOT gm_duns_id  IN [ '#', '','NDM999999', 'NOH999999'] ) AND (NOT gm_duns_id IS NULL)
     WITH DISTINCT(father) AS father
     //DELETE obsolete relationships to other nodes, if child-DUNS = father-DUNS the relationship is trivial
-    OPTIONAL MATCH (child:NatDuns{duns:father.duns})-[k:BELONGS{origin:'IFRP'}]->(anyNode:GlobalDuns)
-            WHERE  anyNode.duns <> father.duns DELETE k
-    WITH father
+    // OPTIONAL MATCH (child:NatDuns{duns:father.duns})-[k:BELONGS{origin:'IFRP'}]->(anyNode:GlobalDuns)
+    //         WHERE  anyNode.duns <> father.duns DELETE k
+    //WITH father
     MATCH (child:NatDuns{duns:father.duns})
         WITH father, child
         Where Not (child)-[:BELONGS]->(father)
         //TODO:APPLY NEW DATE
         CREATE (child)-[r:BELONGS{origin:"IFRP",validation_level:'PYD',update_date:'2020-01-01'}]->(father)
             WITH DISTINCT(child) as father //go one level deeper, now NatDuns as father with child Duns
-            OPTIONAL MATCH (child:Duns{duns:father.duns})-[k:BELONGS{origin:'IFRP'}]->(anyNode:NatDuns)
-            WHERE  anyNode.duns <> father.duns DELETE k
-                WITH father
+            // OPTIONAL MATCH (child:Duns{duns:father.duns})-[k:BELONGS{origin:'IFRP'}]->(anyNode:NatDuns)
+            // WHERE  anyNode.duns <> father.duns DELETE k
+            //     WITH father
                 MATCH (child:Duns{duns:father.duns})
                     WITH father, child
                     Where Not (child)-[:BELONGS]->(father)
                     //TODO:APPLY NEW DATE
                     CREATE (child)-[r:BELONGS{origin:"IFRP",validation_level:'PYD',update_date:'2020-01-01'}]->(father);
+MATCH (d:NatDuns)-[r:BELONGS]->(n:GlobalDuns)
+WHERE (NOT r.is_preexisting IS NULL)
+REMOVE r.is_preexisting;  

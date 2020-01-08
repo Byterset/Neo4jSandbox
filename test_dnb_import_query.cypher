@@ -80,7 +80,7 @@ WHERE (NOT duns_id  IN [ '#', '','NDM999999', 'NOH999999'] ) AND (NOT duns_id IS
     MATCH (father:NatDuns{duns:nat_duns_id})
     WHERE (NOT nat_duns_id  IN [ '#', '','NDM999999', 'NOH999999'] ) AND (NOT nat_duns_id IS NULL) 
         WITH DISTINCT (child) AS child, row, father, exists((child)-[:BELONGS{validation_level:'PYD'}]->(:NatDuns)) as pyd_exists
-        WITH DISTINCT (father) AS father, child, row, pyd_exists
+        WITH DISTINCT (father) AS father, child, row, pyd_exists, exists((child)-[:BELONGS]->(father)) as rel_exists
             //Conditional Relationships with FOREACH Clause acting as 'IF'
             OPTIONAL MATCH (child)-[k:BELONGS{origin:'DNB_UNTRUST'}]->(anyNode:NatDuns)
             WITH (CASE WHEN (anyNode.duns <> father.duns) THEN k END) AS del, father,child,row,pyd_exists
