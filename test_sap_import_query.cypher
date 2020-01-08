@@ -90,7 +90,7 @@ WHERE (not supplier_uid IS NULL) AND (not row.sr_supplier_id = '')
 //CREATE duns -> natduns
 //MARK ALL EXISTING RELATIONSHIPS AS PREEXISTING
 MATCH (d:Duns)-[r:BELONGS]->(n:NatDuns)
-WHERE r.is_preexisting = false
+WHERE r.is_preexisting = false OR r.is_preexisting IS NULL
 SET r.is_preexisting = true;                               
 //Additionally: if there is not already a PYD edge existing - create the edge from the IFRP export CSV
 Load CSV WITH headers from 'https://raw.githubusercontent.com/KevinReier/Neo4jSandbox/master/test_sap_export.csv' AS row fieldterminator '|' 
@@ -102,6 +102,10 @@ WHERE (NOT duns_id  IN [ '#', '','NDM999999', 'NOH999999'] ) AND (NOT duns_id IS
     WHERE (NOT nat_duns_id  IN [ '#', '','NDM999999', 'NOH999999'] ) AND (NOT nat_duns_id IS NULL) 
         WITH DISTINCT (child) AS child, row, father, exists((child)-[:BELONGS{validation_level:'PYD',is_preexisting:true}]->(:NatDuns)) as pyd_exists
             WITH DISTINCT (father) AS father, child, row, pyd_exists
+            OPTIONAL MATCH (child)-[k:BELONGS{is_preexisting:true}]->(anyNat:NatDuns)
+            WHERE k.validation_level <> 'PYD'
+            DELETE k
+            WITH father,child,row,pyd_exists
             //Conditional Relationships with FOREACH Clause acting as 'IF'     
             FOREACH(cond_clause IN CASE WHEN NOT pyd_exists THEN [1] ELSE [] END | 
                 MERGE (child)-[y:BELONGS]->(father)
@@ -110,11 +114,7 @@ WHERE (NOT duns_id  IN [ '#', '','NDM999999', 'NOH999999'] ) AND (NOT duns_id IS
                         y.validation_level = row.source,
                         y.update_date = row.modification_date
                     REMOVE y.is_preexisting
-            )
-            WITH father,child
-            OPTIONAL MATCH (child)-[k:BELONGS{is_preexisting:true}]->(anyNat:NatDuns)
-            WHERE k.validation_level <> 'PYD' AND (anyNat.duns <> father.duns)
-            DELETE k;
+            );
 //nat duns <- identical duns
 Load CSV WITH headers from 'https://raw.githubusercontent.com/KevinReier/Neo4jSandbox/master/test_sap_export.csv' AS row fieldterminator '|' 
 WITH row, row.sr_supplier_national_mother_duns_id AS nat_duns_id
@@ -136,7 +136,7 @@ REMOVE r.is_preexisting;
 //CREATE natduns -> gmduns
 //MARK ALL EXISTING RELATIONSHIPS AS PREEXISTING
 MATCH (d:NatDuns)-[r:BELONGS]->(n:GlobalDuns)
-WHERE r.is_preexisting = false
+WHERE r.is_preexisting = false OR r.is_preexisting IS NULL
 SET r.is_preexisting = true;    
 Load CSV WITH headers from 'https://raw.githubusercontent.com/KevinReier/Neo4jSandbox/master/test_sap_export.csv' AS row fieldterminator '|' 
 WITH row, row.sr_supplier_national_mother_duns_id  AS nat_duns_id
@@ -157,7 +157,7 @@ WHERE (NOT nat_duns_id  IN [ '#', '','NDM999999', 'NOH999999'] ) AND (NOT nat_du
             )
             WITH father,child
             OPTIONAL MATCH (child)-[k:BELONGS{is_preexisting:true}]->(anyGlob:GlobalDuns)
-            WHERE k.validation_level <> 'PYD' AND (anyGlob.duns <> father.duns)
+            WHERE k.validation_level <> 'PYD' 
                 DELETE k;   
 // gm duns <- self nat duns <- self duns 
 Load CSV WITH headers from 'https://raw.githubusercontent.com/KevinReier/Neo4jSandbox/master/test_sap_export.csv' AS row fieldterminator '|' 
