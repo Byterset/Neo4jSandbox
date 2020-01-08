@@ -1,5 +1,5 @@
 //LOAD DNB QUERIES
-//REVISION DATE: 2020-01-04
+//REVISION DATE: 2020-01-08
 //WHAT DOES THIS QUERY DO: 
 //LOAD DNB EXPORT FILE AS CSV AND CREATE/UPDATE ALL NODES LEVEL BY LEVEL (local Supplier - DUNS - NATDUNS - GLOBALDUNS) THEN LINK THEM ACCORDINGLY
 
@@ -46,7 +46,8 @@ MERGE (n:NatDuns{duns:dunsid})
     WITH DISTINCT n
     MERGE (d:Duns{duns:n.duns})
         ON CREATE SET
-            d = n;
+            d = n,
+            d.origin = 'PLACEHOLDER';
                        
 //CREATE all nonexisting GLOBAL-MOTHER-DUNS level nodes WITH their DUNS-ID as unique identifier
 //Also CREATE DUNS and NATDUNS level node/s if nonexisting
@@ -65,7 +66,8 @@ MERGE (g:GlobalDuns{duns:dunsid})
     WITH DISTINCT g
         MERGE (n:NatDuns{duns:g.duns})
             ON CREATE SET
-                n = g    
+                n = g,
+                n.origin = 'PLACEHOLDER'
             WITH DISTINCT n
             MERGE (d:Duns{duns:n.duns})
                 ON CREATE SET
@@ -81,37 +83,29 @@ WHERE (NOT duns_id  IN [ '#', '','NDM999999', 'NOH999999'] ) AND (NOT duns_id IS
     WHERE (NOT nat_duns_id  IN [ '#', '','NDM999999', 'NOH999999'] ) AND (NOT nat_duns_id IS NULL) 
         WITH DISTINCT (child) AS child, row, father, exists((child)-[:BELONGS{validation_level:'PYD'}]->(:NatDuns)) as pyd_exists
         WITH DISTINCT (father) AS father, child, row, pyd_exists, exists((child)-[:BELONGS]->(father)) as rel_exists
-            //Conditional Relationships with FOREACH Clause acting as 'IF'
-            OPTIONAL MATCH (child)-[k:BELONGS{origin:'DNB_UNTRUST'}]->(anyNode:NatDuns)
-            WITH (CASE WHEN (anyNode.duns <> father.duns) THEN k END) AS del, father,child,row,pyd_exists
-            FOREACH(cond_clause IN CASE WHEN NOT pyd_exists THEN [1] ELSE [] END | 
-                DELETE del
-                MERGE (child)-[y:BELONGS{origin:'DNB_UNTRUST'}]->(father)
-                    SET 
-                        y.validation_level = 'DNB',
-                        y.update_date = '2020-01-01' //TODO:APPLY NEW DATE
+            FOREACH(cond_clause IN CASE WHEN NOT rel_exists THEN [1] ELSE [] END | 
+                //TODO:APPLY NEW DATE
+                CREATE (child)-[y:BELONGS{origin:'DNB_UNTRUST',validation_level:'DNB',update_date:'2020-01-01'}]->(father) 
             )
-            //IF there is an 'PYD' level relationship existing: delete obsolete other relationships and ignore CSV rel. since PYD is highest value
-            WITH child, pyd_exists
-            OPTIONAL MATCH (child)-[k:BELONGS{origin:'DNB_UNTRUST'}]->(:NatDuns) 
-            WHERE pyd_exists AND k.validation_level <> 'PYD' 
-            FOREACH(cond_clause IN CASE WHEN pyd_exists THEN [1] ELSE [] END | 
-                    DELETE k
-            );        
-// nat duns <- identical duns
-LOAD CSV WITH HEADERS FROM 'https://raw.githubusercontent.com/KevinReier/Neo4jSandbox/master/test_dnb_export.csv' AS row FIELDTERMINATOR '|'
-WITH row, row.du_duns AS nat_duns_id
-MATCH (father:NatDuns{duns:nat_duns_id})
-WHERE (NOT nat_duns_id  IN [ '#', '','NDM999999', 'NOH999999'] ) AND (NOT nat_duns_id IS NULL) 
-    WITH DISTINCT(father) AS father
-    OPTIONAL MATCH (child:Duns{duns:father.duns})-[k:BELONGS{origin:'DNB_UNTRUST'}]->(anyNode:NatDuns)
-            WHERE  anyNode.duns <> father.duns DELETE k
-    WITH father
+            FOREACH(cond_clause IN CASE WHEN rel_exists THEN [1] ELSE [] END | 
+                FOREACH(cond_clause IN CASE WHEN NOT pyd_exists THEN [1] ELSE [] END | 
+                    MERGE (child)-[y:BELONGS]->(father)
+                    SET 
+                        y.origin='DNB_UNTRUST',
+                        y.validation_level='DNB',
+                        //TODO:APPLY NEW DATE
+                        y.update_date='2020-01-01'
+                )
+            );     
+//nat duns <- identical duns
+MATCH (father:NatDuns)
+WITH DISTINCT(father) AS father
     MATCH (child:Duns{duns:father.duns})
         WITH father, child
         Where Not (child)-[:BELONGS]->(father)
-        //TODO: APPLY NEW DATE
-        CREATE (child)-[r:BELONGS{origin:"DNB_UNTRUST",validation_level:'DNB',update_date:'2020-01-01'}]->(father);
+        //TODO:APPLY NEW DATE
+        CREATE (child)-[r:BELONGS{origin:"PLACEHOLDER",validation_level:'DNB',update_date:'2020-01-01'}]->(father);
+
 
 //CREATE natduns -> gmduns
 LOAD CSV WITH HEADERS FROM 'https://raw.githubusercontent.com/KevinReier/Neo4jSandbox/master/test_dnb_export.csv' AS row FIELDTERMINATOR '|'
@@ -122,47 +116,30 @@ WHERE (NOT nat_duns_id  IN [ '#', '','NDM999999', 'NOH999999'] ) AND (NOT nat_du
     MATCH (father:GlobalDuns{duns:gm_duns_id})
     WHERE (NOT gm_duns_id  IN [ '#', '','NDM999999', 'NOH999999'] ) AND (NOT gm_duns_id IS NULL)      
         WITH DISTINCT (child) AS child, row, father, exists((child)-[:BELONGS{validation_level:'PYD'}]->(:GlobalDuns)) as pyd_exists
-        WITH DISTINCT (father) AS father, child, row, pyd_exists
-            //Conditional Relationships with FOREACH Clause acting as 'IF'
-            OPTIONAL MATCH (child)-[k:BELONGS{origin:'DNB_UNTRUST'}]->(anyNode:GlobalDuns)
-            //IF there is no existing 'PYD' level relationship: delete rels not between child and father based on CSV
-            //Then Merge new Connection
-            WITH CASE WHEN anyNode.duns <> father.duns THEN k END AS del, father,child,row,pyd_exists
-            FOREACH(cond_clause IN CASE WHEN NOT pyd_exists THEN [1] ELSE [] END | 
-                DELETE del
-                MERGE (child)-[y:BELONGS{origin:'DNB_UNTRUST'}]->(father)
-                    SET 
-                        y.validation_level = 'DNB',
-                        y.update_date = '2020-01-01' //TODO: APPLY NEW DATE
+        WITH DISTINCT (father) AS father, child, row, pyd_exists, exists((child)-[:BELONGS]->(father)) as rel_exists
+            FOREACH(cond_clause IN CASE WHEN NOT rel_exists THEN [1] ELSE [] END | 
+                //TODO:APPLY NEW DATE
+                CREATE (child)-[y:BELONGS{origin:'DNB_UNTRUST',validation_level:'DNB',update_date:'2020-01-01'}]->(father) 
             )
-            //IF there is an 'PYD' level relationship existing: delete obsolete other relationships and ignore CSV rel. since PYD is highest value
-            WITH child, pyd_exists
-            OPTIONAL MATCH (child)-[k:BELONGS{origin:'DNB_UNTRUST'}]->(:GlobalDuns) 
-            WHERE pyd_exists AND k.validation_level <> 'PYD' 
-            FOREACH(cond_clause IN CASE WHEN pyd_exists THEN [1] ELSE [] END | 
-                    DELETE k
-            );        
+            FOREACH(cond_clause IN CASE WHEN rel_exists THEN [1] ELSE [] END | 
+                FOREACH(cond_clause IN CASE WHEN NOT pyd_exists THEN [1] ELSE [] END | 
+                    MERGE (child)-[y:BELONGS]->(father)
+                    SET 
+                        y.origin='DNB_UNTRUST',
+                        y.validation_level='DNB',
+                        //TODO:APPLY NEW DATE
+                        y.update_date='2020-01-01'
+                )
+            );  
 // gm duns <- self nat duns <- self duns 
-LOAD CSV WITH HEADERS FROM 'https://raw.githubusercontent.com/KevinReier/Neo4jSandbox/master/test_dnb_export.csv' AS row FIELDTERMINATOR '|'
-WITH row, row.gu_duns AS gm_duns_id
-MATCH (father:GlobalDuns{duns:gm_duns_id})
-WHERE (NOT gm_duns_id  IN [ '#', '','NDM999999', 'NOH999999'] ) AND (NOT gm_duns_id IS NULL)
-    WITH DISTINCT(father) AS father
-    //DELETE obsolete relationships to other nodes, if child-DUNS = father-DUNS the relationship is trivial
-    OPTIONAL MATCH (child:NatDuns{duns:father.duns})-[k:BELONGS{origin:'DNB_UNTRUST'}]->(anyNode:GlobalDuns)
-            WHERE  anyNode.duns <> father.duns DELETE k
-    WITH father
-    MATCH (child:NatDuns{duns:father.duns})
-        WITH father, child
+MATCH (father:GlobalDuns)
+ WITH DISTINCT(father) AS father
+ MATCH (child:NatDuns{duns:father.duns})
         Where Not (child)-[:BELONGS]->(father)
-        CREATE (child)-[r:BELONGS{origin:"DNB_UNTRUST",validation_level:'PYD',update_date:'2020-01-01'}]->(father) //TODO: APPLY NEW DATE
-            WITH DISTINCT(child) as father //go one level deeper, now NatDuns as father with child Duns
-            OPTIONAL MATCH (child:Duns{duns:father.duns})-[k:BELONGS{origin:'DNB_UNTRUST'}]->(anyNode:NatDuns)
-            WHERE  anyNode.duns <> father.duns DELETE k
-                WITH father
-                MATCH (child:Duns{duns:father.duns})
-                    WITH father, child
-                    Where Not (child)-[:BELONGS]->(father)
-                    //TODO: APPLY NEW DATE
-                    CREATE (child)-[r:BELONGS{origin:"DNB_UNTRUST",validation_level:'PYD',update_date:'2020-01-01'}]->(father); 
-
+        //TODO:APPLY NEW DATE
+        CREATE (child)-[r:BELONGS{origin:"PLACEHOLDER",validation_level:'DNB',update_date:'2020-01-01'}]->(father)
+        WITH DISTINCT(child) as father
+         MATCH (child:Duns{duns:father.duns})
+        Where Not (child)-[:BELONGS]->(father)
+        //TODO:APPLY NEW DATE
+        CREATE (child)-[r:BELONGS{origin:"PLACEHOLDER",validation_level:'DNB',update_date:'2020-01-01'}]->(father);
