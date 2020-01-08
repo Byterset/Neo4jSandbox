@@ -86,12 +86,14 @@ WHERE (not supplier_uid IS NULL) AND (not row.sr_supplier_id = '')
                 MERGE (child)-[y:BELONGS{origin:'IFRP'}]->(father)
                     SET 
                         y.validation_level = row.source;
-            
+
+//MARK ALL EXISTING RELATIONSHIPS AS PREEXISTING
+MATCH (d:Duns)-[r:BELONGS]->(n:NatDuns)
+SET r.is_preexisting = true;  
+MATCH (d:NatDuns)-[r:BELONGS]->(n:GlobalDuns)
+SET r.is_preexisting = true;         
                          
 //CREATE duns -> natduns
-//First delete all relationships that are not PYD level
-MATCH (d:Duns)-[r:BELONGS]->(n:NatDuns)
-WHERE r.validation_level <> 'PYD' DELETE r;
 //Additionally: if there is not already a PYD edge existing - create the edge from the IFRP export CSV
 Load CSV WITH headers from 'https://raw.githubusercontent.com/KevinReier/Neo4jSandbox/master/test_sap_export.csv' AS row fieldterminator '|' 
 WITH row, row.sr_supplier_duns_id AS duns_id
@@ -100,11 +102,12 @@ WHERE (NOT duns_id  IN [ '#', '','NDM999999', 'NOH999999'] ) AND (NOT duns_id IS
     WITH row, child, row.sr_supplier_national_mother_duns_id AS nat_duns_id
     MATCH (father:NatDuns{duns:nat_duns_id})
     WHERE (NOT nat_duns_id  IN [ '#', '','NDM999999', 'NOH999999'] ) AND (NOT nat_duns_id IS NULL) 
-        WITH DISTINCT (child) AS child, row, father, exists((child)-[:BELONGS{validation_level:'PYD'}]->(:NatDuns)) as pyd_exists
+        WITH DISTINCT (child) AS child, row, father, exists((child)-[:BELONGS{validation_level:'PYD',is_preexisting:true}]->(:NatDuns)) as pyd_exists
+            OPTIONAL MATCH (child)-[k:BELONGS{origin:'IFRP',is_preexisting:true}]->(:NatDuns)
+            WHERE k.validation_level <> 'PYD' 
+                DELETE k
         WITH DISTINCT (father) AS father, child, row, pyd_exists
-            //Conditional Relationships with FOREACH Clause acting as 'IF'
-            //OPTIONAL MATCH (child)-[k:BELONGS{origin:'IFRP'}]->(anyNode:NatDuns)
-            // WITH (CASE WHEN (anyNode.duns <> father.duns) THEN k END) AS del, father,child,row,pyd_exists
+            //Conditional Relationships with FOREACH Clause acting as 'IF'     
             FOREACH(cond_clause IN CASE WHEN NOT pyd_exists THEN [1] ELSE [] END | 
                 //DELETE k
                 MERGE (child)-[y:BELONGS{origin:'IFRP'}]->(father)
