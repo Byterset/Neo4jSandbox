@@ -89,6 +89,10 @@ WHERE (not supplier_uid IS NULL) AND (not row.sr_supplier_id = '')
             
                          
 //CREATE duns -> natduns
+//First delete all relationships that are not PYD level
+MATCH (d:Duns)-[r:BELONGS]->(n:NatDuns)
+WHERE r.validation_level <> 'PYD' DELETE r;
+//Additionally: if there is not already a PYD edge existing - create the edge from the IFRP export CSV
 Load CSV WITH headers from 'https://raw.githubusercontent.com/KevinReier/Neo4jSandbox/master/test_sap_export.csv' AS row fieldterminator '|' 
 WITH row, row.sr_supplier_duns_id AS duns_id
 MATCH (child:Duns{duns:duns_id})
@@ -101,20 +105,21 @@ WHERE (NOT duns_id  IN [ '#', '','NDM999999', 'NOH999999'] ) AND (NOT duns_id IS
             //Conditional Relationships with FOREACH Clause acting as 'IF'
             //OPTIONAL MATCH (child)-[k:BELONGS{origin:'IFRP'}]->(anyNode:NatDuns)
             // WITH (CASE WHEN (anyNode.duns <> father.duns) THEN k END) AS del, father,child,row,pyd_exists
-            WITH father,child,row,pyd_exists
             FOREACH(cond_clause IN CASE WHEN NOT pyd_exists THEN [1] ELSE [] END | 
                 //DELETE k
-                MERGE (child)-[y:BELONGS{origin:'IFRP',validation_level:row.source}]->(father)
+                MERGE (child)-[y:BELONGS{origin:'IFRP'}]->(father)
                     SET 
+                        y.validation_level = row.source,
                         y.update_date = row.modification_date
-            )
-            //IF there is an 'PYD' level relationship existing: delete obsolete other relationships and ignore CSV rel. since PYD is highest value
-            WITH child, pyd_exists
-            OPTIONAL MATCH (child)-[k:BELONGS{origin:'IFRP'}]->(:NatDuns) 
-            WHERE pyd_exists AND k.validation_level <> 'PYD' 
-            FOREACH(cond_clause IN CASE WHEN pyd_exists THEN [1] ELSE [] END | 
-                    DELETE k
-            );        
+            );
+            // //IF there is an 'PYD' level relationship existing: delete obsolete other relationships and ignore CSV rel. since PYD is highest value
+            // WITH child, pyd_exists
+            // OPTIONAL MATCH (child)-[k:BELONGS{origin:'IFRP'}]->(:NatDuns) 
+            // WHERE pyd_exists AND k.validation_level <> 'PYD' 
+            // FOREACH(cond_clause IN CASE WHEN pyd_exists THEN [1] ELSE [] END | 
+            //         DELETE k
+            // )
+        
 // nat duns <- identical duns
 Load CSV WITH headers from 'https://raw.githubusercontent.com/KevinReier/Neo4jSandbox/master/test_sap_export.csv' AS row fieldterminator '|' 
 WITH row, row.sr_supplier_national_mother_duns_id AS nat_duns_id
@@ -132,6 +137,10 @@ WHERE (NOT nat_duns_id  IN [ '#', '','NDM999999', 'NOH999999'] ) AND (NOT nat_du
 
 
 //CREATE natduns -> gmduns
+//First delete all relationships that are not PYD level
+MATCH (d:NatDuns)-[r:BELONGS]->(n:GlobalDuns)
+WHERE r.validation_level <> 'PYD' DELETE r;
+//Additionally: if there is not already a PYD edge existing - create the edge from the IFRP export CSV
 Load CSV WITH headers from 'https://raw.githubusercontent.com/KevinReier/Neo4jSandbox/master/test_sap_export.csv' AS row fieldterminator '|' 
 WITH row, row.sr_supplier_national_mother_duns_id  AS nat_duns_id
 MATCH (child:NatDuns{duns:nat_duns_id})
@@ -141,25 +150,27 @@ WHERE (NOT nat_duns_id  IN [ '#', '','NDM999999', 'NOH999999'] ) AND (NOT nat_du
     WHERE (NOT gm_duns_id  IN [ '#', '','NDM999999', 'NOH999999'] ) AND (NOT gm_duns_id IS NULL)      
         WITH DISTINCT (child) AS child, row, father, exists((child)-[:BELONGS{validation_level:'PYD'}]->(:GlobalDuns)) as pyd_exists
         WITH DISTINCT (father) AS father, child, row, pyd_exists
+            
             //Conditional Relationships with FOREACH Clause acting as 'IF'
             //OPTIONAL MATCH (child)-[k:BELONGS{origin:'IFRP'}]->(anyNode:GlobalDuns)
             //IF there is no existing 'PYD' level relationship: delete rels not between child and father based on CSV
             //Then Merge new Connection
             //WITH CASE WHEN anyNode.duns <> father.duns THEN k END AS del, father,child,row,pyd_exists
-            WITH father, child, row, pyd_exists
+            // WITH father, child, row, pyd_exists
             FOREACH(cond_clause IN CASE WHEN NOT pyd_exists THEN [1] ELSE [] END | 
                 //DELETE del
-                MERGE (child)-[y:BELONGS{origin:'IFRP',validation_level:row.source}]->(father)
+                MERGE (child)-[y:BELONGS{origin:'IFRP'}]->(father)
                     SET 
+                        y.validation_level = row.source
                         y.update_date = row.modification_date
-            )
+            );
             //IF there is an 'PYD' level relationship existing: delete obsolete other relationships and ignore CSV rel. since PYD is highest value
-            WITH child, pyd_exists
-            OPTIONAL MATCH (child)-[k:BELONGS{origin:'IFRP'}]->(:GlobalDuns) 
-            WHERE pyd_exists AND k.validation_level <> 'PYD' 
-            FOREACH(cond_clause IN CASE WHEN pyd_exists THEN [1] ELSE [] END | 
-                    DELETE k
-            );        
+            // WITH child, pyd_exists
+            // OPTIONAL MATCH (child)-[k:BELONGS{origin:'IFRP'}]->(:GlobalDuns) 
+            // WHERE pyd_exists AND k.validation_level <> 'PYD' 
+            // FOREACH(cond_clause IN CASE WHEN pyd_exists THEN [1] ELSE [] END | 
+            //         DELETE k
+            // );        
 // gm duns <- self nat duns <- self duns 
 Load CSV WITH headers from 'https://raw.githubusercontent.com/KevinReier/Neo4jSandbox/master/test_sap_export.csv' AS row fieldterminator '|' 
 WITH row, row.sr_supplier_global_mother_duns_id AS gm_duns_id
