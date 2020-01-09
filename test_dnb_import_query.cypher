@@ -4,17 +4,18 @@
 //LOAD DNB EXPORT FILE AS CSV AND CREATE/UPDATE ALL NODES LEVEL BY LEVEL (local Supplier - DUNS - NATDUNS - GLOBALDUNS) THEN LINK THEM ACCORDINGLY
 
 //WHAT NEEDS TO BE DONE IN ORDER FOR THE IMPORT PROCESS TO WORK PROPERLY?
-//  1) DNB_UNTRUST IMPORT QUERIES SHOULD HAVE ALREADY BEEN EXECUTED
+//  1) IFRP IMPORT QUERIES SHOULD HAVE ALREADY BEEN EXECUTED
 //  2) ALL '.CSV' file paths need to be updated according to the latest file name. (ATTENTION TO FIELDTERMINATORS)
 //  3) The Headers in the CSV file must exist and be named according to the Linkurious import guid on the hub
-//  4) This needs to be the first query to be run for two reasons: 
-//      4.1) It does not discriminate between relationship validation, it just adds everything according to the source file
-//      4.2) The DNB Input which should be loaded directly afterwards does not contain the local supplier information 
+//  4) This needs to be the second query to be run!
 
-//TODO: ADD REST OF MASTERDATA FROM FINAL FILE STRUCTURE, NOW: ONLY INFO NECESSARY FOR TESTING
+//WARNING: some of the following statements will invoke the 'EAGER'-Operator to prevent conflicting data-changes in subsequent operations
+//this can be very memory heavy while importing files with 1,000,000 lines or more, but should not pose an issue here
 
+//------------------------------------------------------------------------------
+//------------------------------CREATE THE NODES--------------------------------
+//------------------------------------------------------------------------------
 
-// CREATE THE NODES
 //CREATE all nonexisting DUNS level nodes WITH their DUNS-ID as unique identifier
 LOAD CSV WITH HEADERS FROM 'https://raw.githubusercontent.com/KevinReier/Neo4jSandbox/master/test_dnb_export.csv' AS row FIELDTERMINATOR '|'
 WITH row, row.duns_no as dunsid, 'DNB_UNTRUST' AS origin
@@ -64,82 +65,164 @@ MERGE (g:GlobalDuns{duns:dunsid})
         g.countrycode = row.gu_country_code,
         g.origin = origin
     WITH DISTINCT g
-        MERGE (n:NatDuns{duns:g.duns})
+    MERGE (n:NatDuns{duns:g.duns})
+        ON CREATE SET
+            n = g,
+            n.origin = 'PLACEHOLDER'
+        WITH DISTINCT n
+        MERGE (d:Duns{duns:n.duns})
             ON CREATE SET
-                n = g,
-                n.origin = 'PLACEHOLDER'
-            WITH DISTINCT n
-            MERGE (d:Duns{duns:n.duns})
-                ON CREATE SET
-                    d = n;
+                d = n;
                     
-//CREATE duns -> natduns
+
+//------------------------------------------------------------------------------
+//-------------------------CREATE THE RELATIONSHIPS-----------------------------
+//------------------------------------------------------------------------------
+
+//CREATE duns -> natduns -> gmduns
+//TODO:APPLY NEW DATE
 LOAD CSV WITH HEADERS FROM 'https://raw.githubusercontent.com/KevinReier/Neo4jSandbox/master/test_dnb_export.csv' AS row FIELDTERMINATOR '|'
-WITH row, row.duns_no AS duns_id
+WITH row, row.duns_no AS duns_id, '2020-01-01' AS up_date
 MATCH (child:Duns{duns:duns_id})
 WHERE (NOT duns_id  IN [ '#', '','NDM999999', 'NOH999999'] ) AND (NOT duns_id IS NULL)
-    WITH row, child, row.du_duns AS nat_duns_id
+    WITH row, child, row.du_duns AS nat_duns_id,up_date
     MATCH (father:NatDuns{duns:nat_duns_id})
     WHERE (NOT nat_duns_id  IN [ '#', '','NDM999999', 'NOH999999'] ) AND (NOT nat_duns_id IS NULL) 
-        WITH DISTINCT (child) AS child, row, father, exists((child)-[:BELONGS{validation_level:'PYD'}]->(:NatDuns)) as pyd_exists
-        WITH DISTINCT (father) AS father, child, row, pyd_exists, exists((child)-[:BELONGS]->(father)) as rel_exists
-            FOREACH(cond_clause IN CASE WHEN NOT rel_exists THEN [1] ELSE [] END | 
-                //TODO:APPLY NEW DATE
-                CREATE (child)-[y:BELONGS{origin:'DNB_UNTRUST',validation_level:'DNB',update_date:'2020-01-01'}]->(father) 
-            )
-            FOREACH(cond_clause IN CASE WHEN rel_exists THEN [1] ELSE [] END | 
-                FOREACH(cond_clause IN CASE WHEN NOT pyd_exists THEN [1] ELSE [] END | 
-                    MERGE (child)-[y:BELONGS]->(father)
+        WITH row, child, father, row.gu_duns AS gm_duns_id,up_date
+        MATCH (gm_father:NatDuns{duns:gm_duns_id})
+        WHERE (NOT gm_duns_id  IN [ '#', '','NDM999999', 'NOH999999'] ) AND (NOT gm_duns_id IS NULL) 
+            WITH DISTINCT (child) AS child, row, father, up_date, gm_father
+            WITH DISTINCT (father) AS father, child, row, up_date, gm_father
+            WITH DISTINCT (gm_father) AS gm_father, father, child, row, up_date, exists((child)-[:BELONGS]->(father)) as dn_exists
+            WITH gm_father, father, child, row, up_date, dn_exists, exists((father)-[:BELONGS]->(gm_father)) as ng_exists
+            OPTIONAL MATCH (child)-[t:BELONGS]->(father)-[:BELONGS]->(gm_father) WHERE t.validation_level <> 'PYD'
+                SET 
+                    t.validation_level = 'DNB',
+                    t.origin = 'DNB_UNTRUST',
+                    t.update_date = up_date
+            WITH gm_father, father, child, row, up_date, dn_exists, ng_exists
+            OPTIONAL MATCH (child)-[:BELONGS]->(father)-[s:BELONGS]->(gm_father) WHERE s.validation_level <> 'PYD'
+                SET 
+                    s.validation_level = 'DNB',
+                    s.origin = 'DNB_UNTRUST',
+                    s.update_date = up_date
+            WITH gm_father, father, child, row, up_date, dn_exists, ng_exists
+            FOREACH(cond_clause IN CASE WHEN NOT dn_exists THEN [1] ELSE [] END | 
+                CREATE (child)-[y:BELONGS{origin:'DNB_UNTRUST',validation_level:'DNB',update_date:up_date}]->(father) 
+                MERGE (father)-[x:BELONGS{origin:'DNB_UNTRUST'}]->(gm_father)
                     SET 
-                        y.origin='DNB_UNTRUST',
-                        y.validation_level='DNB',
-                        //TODO:APPLY NEW DATE
-                        y.update_date='2020-01-01'
+                        x.update_date = up_date,
+                        x.validation_level= 'DNB'
+            )
+            FOREACH(cond_clause IN CASE WHEN dn_exists THEN [1] ELSE [] END | 
+                FOREACH(cond_clause2 IN CASE WHEN NOT ng_exists THEN [1] ELSE [] END | 
+                    CREATE (father)-[y:BELONGS{origin:'DNB_UNTRUST',validation_level:'DNB',update_date:up_date}]->(gm_father) 
+                    MERGE (child)-[x:BELONGS{origin:'DNB_UNTRUST'}]->(father)
+                        SET 
+                            x.update_date = up_date,
+                            x.validation_level ='DNB'
                 )
-            );     
+            );   
+
 //nat duns <- identical duns
-MATCH (father:NatDuns)
-WITH DISTINCT(father) AS father
+Load CSV WITH headers from 'https://raw.githubusercontent.com/KevinReier/Neo4jSandbox/master/test_dnb_export.csv' AS row fieldterminator '|' 
+WITH row, row.du_duns AS nat_duns_id
+MATCH (father:NatDuns{duns:nat_duns_id})
+WHERE (not nat_duns_id in ['#','','NDM999999','NOH999999']) AND (not nat_duns_id IS NULL)
+    WITH DISTINCT(father) AS father
     MATCH (child:Duns{duns:father.duns})
-        WITH father, child
-        Where Not (child)-[:BELONGS]->(father)
+    WHERE NOT (child)-[:BELONGS]->(father)
         //TODO:APPLY NEW DATE
-        CREATE (child)-[r:BELONGS{origin:"PLACEHOLDER",validation_level:'DNB',update_date:'2020-01-01'}]->(father);
+        CREATE (child)-[r:BELONGS{origin:"PLACEHOLDER",validation_level:'IFR',update_date:'2020-01-01'}]->(father);
 
-
-//CREATE natduns -> gmduns
-LOAD CSV WITH HEADERS FROM 'https://raw.githubusercontent.com/KevinReier/Neo4jSandbox/master/test_dnb_export.csv' AS row FIELDTERMINATOR '|'
-WITH row, row.du_duns  AS nat_duns_id
-MATCH (child:NatDuns{duns:nat_duns_id})
-WHERE (NOT nat_duns_id  IN [ '#', '','NDM999999', 'NOH999999'] ) AND (NOT nat_duns_id IS NULL)
-    WITH row, child, row.gu_duns AS gm_duns_id
-    MATCH (father:GlobalDuns{duns:gm_duns_id})
-    WHERE (NOT gm_duns_id  IN [ '#', '','NDM999999', 'NOH999999'] ) AND (NOT gm_duns_id IS NULL)      
-        WITH DISTINCT (child) AS child, row, father, exists((child)-[:BELONGS{validation_level:'PYD'}]->(:GlobalDuns)) as pyd_exists
-        WITH DISTINCT (father) AS father, child, row, pyd_exists, exists((child)-[:BELONGS]->(father)) as rel_exists
-            FOREACH(cond_clause IN CASE WHEN NOT rel_exists THEN [1] ELSE [] END | 
-                //TODO:APPLY NEW DATE
-                CREATE (child)-[y:BELONGS{origin:'DNB_UNTRUST',validation_level:'DNB',update_date:'2020-01-01'}]->(father) 
-            )
-            FOREACH(cond_clause IN CASE WHEN rel_exists THEN [1] ELSE [] END | 
-                FOREACH(cond_clause IN CASE WHEN NOT pyd_exists THEN [1] ELSE [] END | 
-                    MERGE (child)-[y:BELONGS]->(father)
-                    SET 
-                        y.origin='DNB_UNTRUST',
-                        y.validation_level='DNB',
-                        //TODO:APPLY NEW DATE
-                        y.update_date='2020-01-01'
-                )
-            );  
 // gm duns <- self nat duns <- self duns 
-MATCH (father:GlobalDuns)
- WITH DISTINCT(father) AS father
- MATCH (child:NatDuns{duns:father.duns})
-        Where Not (child)-[:BELONGS]->(father)
-        //TODO:APPLY NEW DATE
-        CREATE (child)-[r:BELONGS{origin:"PLACEHOLDER",validation_level:'DNB',update_date:'2020-01-01'}]->(father)
-        WITH DISTINCT(child) as father
-         MATCH (child:Duns{duns:father.duns})
-        Where Not (child)-[:BELONGS]->(father)
-        //TODO:APPLY NEW DATE
-        CREATE (child)-[r:BELONGS{origin:"PLACEHOLDER",validation_level:'DNB',update_date:'2020-01-01'}]->(father);
+//TODO:APPLY NEW DATE
+Load CSV WITH headers from 'https://raw.githubusercontent.com/KevinReier/Neo4jSandbox/master/test_dnb_export.csv' AS row fieldterminator '|' 
+WITH row, row.gu_duns AS gm_duns_id, '2020-01-01' AS up_date
+MATCH (father:GloablDuns{duns:gm_duns_id})
+WHERE (not gm_duns_id in ['#','','NDM999999','NOH999999']) AND (NOT gm_duns_id IS NULL)
+    WITH DISTINCT(father) AS father, up_date
+    MATCH (child:NatDuns{duns:father.duns})
+    WHERE NOT (child)-[:BELONGS]->(father)
+        CREATE (child)-[r:BELONGS{origin:"PLACEHOLDER",validation_level:'DNB',update_date:up_date}]->(father)
+    WITH DISTINCT(child) as father, up_date
+    MATCH (child:Duns{duns:father.duns})
+    WHERE NOT (child)-[:BELONGS]->(father)
+        CREATE (child)-[r:BELONGS{origin:"PLACEHOLDER",validation_level:'DNB',update_date:up_date}]->(father);
+
+
+
+
+//------------------------------------------------------------------------------------------------------
+//-----------------------------------------------OLD----------------------------------------------------
+//------------------------------------------------------------------------------------------------------
+
+// //CREATE duns -> natduns
+// LOAD CSV WITH HEADERS FROM 'https://raw.githubusercontent.com/KevinReier/Neo4jSandbox/master/test_dnb_export.csv' AS row FIELDTERMINATOR '|'
+// WITH row, row.duns_no AS duns_id
+// MATCH (child:Duns{duns:duns_id})
+// WHERE (NOT duns_id  IN [ '#', '','NDM999999', 'NOH999999'] ) AND (NOT duns_id IS NULL)
+//     WITH row, child, row.du_duns AS nat_duns_id
+//     MATCH (father:NatDuns{duns:nat_duns_id})
+//     WHERE (NOT nat_duns_id  IN [ '#', '','NDM999999', 'NOH999999'] ) AND (NOT nat_duns_id IS NULL) 
+//         WITH DISTINCT (child) AS child, row, father, exists((child)-[:BELONGS{validation_level:'PYD'}]->(:NatDuns)) as pyd_exists
+//         WITH DISTINCT (father) AS father, child, row, pyd_exists, exists((child)-[:BELONGS]->(father)) as rel_exists
+//             FOREACH(cond_clause IN CASE WHEN NOT rel_exists THEN [1] ELSE [] END | 
+//                 //TODO:APPLY NEW DATE
+//                 CREATE (child)-[y:BELONGS{origin:'DNB_UNTRUST',validation_level:'DNB',update_date:'2020-01-01'}]->(father) 
+//             )
+//             FOREACH(cond_clause IN CASE WHEN rel_exists THEN [1] ELSE [] END | 
+//                 FOREACH(cond_clause IN CASE WHEN NOT pyd_exists THEN [1] ELSE [] END | 
+//                     MERGE (child)-[y:BELONGS]->(father)
+//                     SET 
+//                         y.origin='DNB_UNTRUST',
+//                         y.validation_level='DNB',
+//                         //TODO:APPLY NEW DATE
+//                         y.update_date='2020-01-01'
+//                 )
+//             );     
+// //nat duns <- identical duns
+// MATCH (father:NatDuns)
+// WITH DISTINCT(father) AS father
+//     MATCH (child:Duns{duns:father.duns})
+//         WITH father, child
+//         Where Not (child)-[:BELONGS]->(father)
+//         //TODO:APPLY NEW DATE
+//         CREATE (child)-[r:BELONGS{origin:"PLACEHOLDER",validation_level:'DNB',update_date:'2020-01-01'}]->(father);
+
+// //CREATE natduns -> gmduns
+// LOAD CSV WITH HEADERS FROM 'https://raw.githubusercontent.com/KevinReier/Neo4jSandbox/master/test_dnb_export.csv' AS row FIELDTERMINATOR '|'
+// WITH row, row.du_duns  AS nat_duns_id
+// MATCH (child:NatDuns{duns:nat_duns_id})
+// WHERE (NOT nat_duns_id  IN [ '#', '','NDM999999', 'NOH999999'] ) AND (NOT nat_duns_id IS NULL)
+//     WITH row, child, row.gu_duns AS gm_duns_id
+//     MATCH (father:GlobalDuns{duns:gm_duns_id})
+//     WHERE (NOT gm_duns_id  IN [ '#', '','NDM999999', 'NOH999999'] ) AND (NOT gm_duns_id IS NULL)      
+//         WITH DISTINCT (child) AS child, row, father, exists((child)-[:BELONGS{validation_level:'PYD'}]->(:GlobalDuns)) as pyd_exists
+//         WITH DISTINCT (father) AS father, child, row, pyd_exists, exists((child)-[:BELONGS]->(father)) as rel_exists
+//             FOREACH(cond_clause IN CASE WHEN NOT rel_exists THEN [1] ELSE [] END | 
+//                 //TODO:APPLY NEW DATE
+//                 CREATE (child)-[y:BELONGS{origin:'DNB_UNTRUST',validation_level:'DNB',update_date:'2020-01-01'}]->(father) 
+//             )
+//             FOREACH(cond_clause IN CASE WHEN rel_exists THEN [1] ELSE [] END | 
+//                 FOREACH(cond_clause IN CASE WHEN NOT pyd_exists THEN [1] ELSE [] END | 
+//                     MERGE (child)-[y:BELONGS]->(father)
+//                     SET 
+//                         y.origin='DNB_UNTRUST',
+//                         y.validation_level='DNB',
+//                         //TODO:APPLY NEW DATE
+//                         y.update_date='2020-01-01'
+//                 )
+//             );  
+// // gm duns <- self nat duns <- self duns 
+// MATCH (father:GlobalDuns)
+//  WITH DISTINCT(father) AS father
+//  MATCH (child:NatDuns{duns:father.duns})
+//         Where Not (child)-[:BELONGS]->(father)
+//         //TODO:APPLY NEW DATE
+//         CREATE (child)-[r:BELONGS{origin:"PLACEHOLDER",validation_level:'DNB',update_date:'2020-01-01'}]->(father)
+//         WITH DISTINCT(child) as father
+//          MATCH (child:Duns{duns:father.duns})
+//         Where Not (child)-[:BELONGS]->(father)
+//         //TODO:APPLY NEW DATE
+//         CREATE (child)-[r:BELONGS{origin:"PLACEHOLDER",validation_level:'DNB',update_date:'2020-01-01'}]->(father);
