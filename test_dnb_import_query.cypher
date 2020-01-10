@@ -27,6 +27,7 @@ MERGE (d:Duns{duns:dunsid})
         d.street = row.add,
         d.city = row.city,
         d.postalcode = row.post_code,
+        d.state = row.state,
         d.countrycode = row.country_code,
         d.origin = origin;
 
@@ -41,7 +42,8 @@ MERGE (n:NatDuns{duns:dunsid})
         n.dunsName = row.du_name,
         n.street = row.du_add,
         n.city= row.du_city,
-        n.postalcode = row.nat_postalcode,
+        n.postalcode = row.du_post_code,
+        n.state = row.du_state,
         n.countrycode = row.du_country_code,
         n.origin = origin             
     WITH DISTINCT n
@@ -61,7 +63,8 @@ MERGE (g:GlobalDuns{duns:dunsid})
         g.dunsName = row.gu_name,
         g.street = row.gu_add,
         g.city= row.gu_city,
-        g.postalcode = row.gu_postalcode,
+        g.postalcode = row.gu_post_code,
+        g.state = row.gu_state,
         g.countrycode = row.gu_country_code,
         g.origin = origin
     WITH DISTINCT g
@@ -80,12 +83,11 @@ MERGE (g:GlobalDuns{duns:dunsid})
 //------------------------------------------------------------------------------
 
 //CREATE duns -> natduns -> gmduns
-//TODO:APPLY NEW DATE
 LOAD CSV WITH HEADERS FROM 'https://raw.githubusercontent.com/KevinReier/Neo4jSandbox/master/test_dnb_export.csv' AS row FIELDTERMINATOR '|'
-WITH row, row.duns_no AS duns_id, '2020-01-01' AS up_date
+WITH row, row.duns_no AS duns_id
 MATCH (child:Duns{duns:duns_id})
 WHERE (NOT duns_id  IN [ '#', '','NDM999999', 'NOH999999'] ) AND (NOT duns_id IS NULL)
-    WITH row, child, row.du_duns AS nat_duns_id,up_date
+    WITH row, child, row.du_duns AS nat_duns_id,row.update_date AS up_date
     MATCH (father:NatDuns{duns:nat_duns_id})
     WHERE (NOT nat_duns_id  IN [ '#', '','NDM999999', 'NOH999999'] ) AND (NOT nat_duns_id IS NULL) 
         WITH row, child, father, row.gu_duns AS gm_duns_id,up_date
@@ -129,16 +131,14 @@ Load CSV WITH headers from 'https://raw.githubusercontent.com/KevinReier/Neo4jSa
 WITH row, row.du_duns AS nat_duns_id
 MATCH (father:NatDuns{duns:nat_duns_id})
 WHERE (not nat_duns_id in ['#','','NDM999999','NOH999999']) AND (not nat_duns_id IS NULL)
-    WITH DISTINCT(father) AS father
+    WITH DISTINCT(father) AS father,row
     MATCH (child:Duns{duns:father.duns})
     WHERE NOT (child)-[:BELONGS]->(father)
-        //TODO:APPLY NEW DATE
-        CREATE (child)-[r:BELONGS{origin:"PLACEHOLDER",validation_level:'IFR',update_date:'2020-01-01'}]->(father);
+        CREATE (child)-[r:BELONGS{origin:"PLACEHOLDER",validation_level:'IFR',update_date:row.update_date}]->(father);
 
 // gm duns <- self nat duns <- self duns 
-//TODO:APPLY NEW DATE
 Load CSV WITH headers from 'https://raw.githubusercontent.com/KevinReier/Neo4jSandbox/master/test_dnb_export.csv' AS row fieldterminator '|' 
-WITH row, row.gu_duns AS gm_duns_id, '2020-01-01' AS up_date
+WITH row, row.gu_duns AS gm_duns_id, row.update_date AS up_date
 MATCH (father:GloablDuns{duns:gm_duns_id})
 WHERE (not gm_duns_id in ['#','','NDM999999','NOH999999']) AND (NOT gm_duns_id IS NULL)
     WITH DISTINCT(father) AS father, up_date

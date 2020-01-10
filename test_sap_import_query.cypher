@@ -91,9 +91,9 @@ WHERE (not supplier_uid IS NULL) AND (not row.sr_supplier_id = '')
 
 
 //CREATE duns -> natduns
-//MARK ALL EXISTING RELATIONSHIPS AS PREEXISTING
+//MARK ALL PREEXISTING RELATIONSHIPS
 MATCH (d:Duns)-[r:BELONGS]->(n:NatDuns)
-WHERE r.is_preexisting = false OR r.is_preexisting IS NULL
+//WHERE r.is_preexisting = false OR r.is_preexisting IS NULL
 SET r.is_preexisting = true;   
 
 //Additionally: if there is not already a PYD edge existing - create the edge from the IFRP export CSV
@@ -131,15 +131,15 @@ WHERE (not nat_duns_id in ['#','','NDM999999','NOH999999']) AND (not nat_duns_id
         //TODO:APPLY NEW DATE
         CREATE (child)-[r:BELONGS{origin:"PLACEHOLDER",validation_level:'IFR',update_date:'2020-01-01'}]->(father);
 
-//UNMARK PREEXISTING RELATIONSHIPS
+//UN-MARK PREEXISTING RELATIONSHIPS
 MATCH (d:Duns)-[r:BELONGS]->(n:NatDuns)
-WHERE (NOT r.is_preexisting IS NULL)
-    REMOVE r.is_preexisting;  
+//WHERE (NOT r.is_preexisting IS NULL)
+REMOVE r.is_preexisting;  
 
 //CREATE natduns -> gmduns
-//MARK ALL EXISTING RELATIONSHIPS AS PREEXISTING
+//MARK ALL PREEXISTING RELATIONSHIPS
 MATCH (d:NatDuns)-[r:BELONGS]->(n:GlobalDuns)
-WHERE r.is_preexisting = false OR r.is_preexisting IS NULL
+//WHERE r.is_preexisting = false OR r.is_preexisting IS NULL
 SET r.is_preexisting = true;  
 
 //establish relationships n->g
@@ -182,5 +182,5 @@ WHERE (not gm_duns_id in ['#','','NDM999999','NOH999999']) AND (NOT gm_duns_id I
 
 //UNMARK PREEXISTING RELATIONSHIPS
 MATCH (d:NatDuns)-[r:BELONGS]->(n:GlobalDuns)
-WHERE (NOT r.is_preexisting IS NULL)
+//WHERE (NOT r.is_preexisting IS NULL)
 REMOVE r.is_preexisting;  
