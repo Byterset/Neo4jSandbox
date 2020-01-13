@@ -91,7 +91,7 @@ WHERE (NOT duns_id  IN [ '#', '','NDM999999', 'NOH999999'] ) AND (NOT duns_id IS
     MATCH (father:NatDuns{duns:nat_duns_id})
     WHERE (NOT nat_duns_id  IN [ '#', '','NDM999999', 'NOH999999'] ) AND (NOT nat_duns_id IS NULL) 
         WITH row, child, father, row.gu_duns AS gm_duns_id,up_date
-        MATCH (gm_father:NatDuns{duns:gm_duns_id})
+        MATCH (gm_father:GlobalDuns{duns:gm_duns_id})
         WHERE (NOT gm_duns_id  IN [ '#', '','NDM999999', 'NOH999999'] ) AND (NOT gm_duns_id IS NULL) 
             WITH DISTINCT (child) AS child, row, father, up_date, gm_father
             WITH DISTINCT (father) AS father, child, row, up_date, gm_father
