@@ -1,2 +1,2 @@
 # Neo4jSandbox
-test data and queries for neo4j
+small collection of CYPHER language queries for Neo4j Graph Databases operation on DUNS company information datasets 
